@@ -313,6 +313,9 @@ class CtpTdApi(TraderApi):
         """撤单错误回报（交易所）"""
         self.gateway.on_err(pRspInfo)
 
+    def OnRspQrySettlementInfoConfirm(self, pSettlementInfoConfirm, pRspInfo, nRequestID, bIsLast):
+        print(pSettlementInfoConfirm, pRspInfo)
+
     @property
     def req_id(self):
         self._req_id += 1
@@ -417,9 +420,9 @@ class CtpTdApi(TraderApi):
             InstrumentID=str2bytes(ins_dict.instrument_id),
             LimitPrice=str2bytes(order.price),
             VolumeTotalOriginal=str2bytes(order.quantity),
-            OrderPriceType=str2bytes(ORDER_TYPE_MAPPING.get(order.type, '')),
-            Direction=str2bytes(SIDE_MAPPING.get(order.side, '')),
-            CombOffsetFlag=str2bytes(POSITION_EFFECT_MAPPING.get(order.position_effect), ''),
+            OrderPriceType=ORDER_TYPE_MAPPING.get(order.type, ''),
+            Direction=SIDE_MAPPING.get(order.side, ''),
+            CombOffsetFlag=POSITION_EFFECT_MAPPING.get(order.position_effect, ''),
 
             OrderRef=str2bytes(str(order.order_id)),
             InvestorID=str2bytes(self.user_id),

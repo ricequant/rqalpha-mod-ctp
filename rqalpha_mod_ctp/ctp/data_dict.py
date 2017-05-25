@@ -330,7 +330,10 @@ class OrderDict(DataDict):
 
         self.side = SIDE_REVERSE.get(data.Direction, SIDE.BUY)
         self.price = data.LimitPrice
-        self.exchange_id = data.ExchangeID
+        try:
+            self.exchange_id = data.ExchangeID
+        except AttributeError:
+            pass
 
         if self.exchange_id == 'SHFE':
             if data.CombOffsetFlag == ApiStruct.OF_Open:

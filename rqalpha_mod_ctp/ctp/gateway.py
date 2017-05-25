@@ -130,7 +130,7 @@ class CtpGateway(object):
         system_log.info(log)
 
     def on_err(self, error):
-        system_log.error('CTP 错误，错误代码：%s，错误信息：%s' % (str(error['ErrorID']), error['ErrorMsg'].decode('GBK')))
+        system_log.error('CTP 错误，错误代码：%s，错误信息：%s' % (str(error.ErrorID), error.ErrorMsg.decode('GBK')))
 
     def on_order(self, order_dict):
         if not order_dict.is_valid:
