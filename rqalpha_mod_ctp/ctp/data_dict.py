@@ -47,7 +47,7 @@ class DataDict(dict):
 
 
 class TickDict(DataDict):
-    def __init__(self, data):
+    def __init__(self, data=None):
         super(TickDict, self).__init__()
         self.order_book_id = None
         self.date = None
@@ -91,14 +91,14 @@ class TickDict(DataDict):
 
         self.is_valid = False
 
-        self.update_data(data)
+        if data:
+            self.update_data(data)
 
     def update_data(self, data):
         self.order_book_id = make_order_book_id(data.InstrumentID)
         try:
             self.date = int(data.TradingDay)
             self.time = int((data.UpdateTime.replace(':', ''))) * 1000 + int(data.UpdateMillisec)
-            # self.time = int(''.join((data['UpdateTime'].replace(':', ''), str(data['UpdateMillisec']))))
             self.open = data.OpenPrice
             self.last = data.LastPrice
             self.low = data.LowestPrice
@@ -135,6 +135,18 @@ class TickDict(DataDict):
             self.is_valid = True
         except ValueError:
             self.is_valid = False
+
+
+# 由持仓构建的伪 tick 类，用于在拿不到行情的时候提供 last_board 。
+class FakeTickDict(TickDict):
+    def __init__(self, pos_dict):
+        super(FakeTickDict, self).__init__()
+        self.update_data(pos_dict)
+
+    def update_data(self, data):
+        self.last = data.prev_settle_price
+        self.limit_up = data.prev_settle_price * 1.1
+        self.limit_down = data.prev_settle_price * 0.9
 
 
 class PositionDict(DataDict):

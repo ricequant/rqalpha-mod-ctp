@@ -20,6 +20,7 @@ from rqalpha.model.base_position import Positions
 from rqalpha.model.order import Order
 from rqalpha.const import SIDE, POSITION_EFFECT, ORDER_STATUS, ACCOUNT_TYPE
 
+from .data_dict import FakeTickDict
 from ..utils import margin_of
 
 
@@ -57,6 +58,9 @@ class DataCache(object):
 
     def cache_position(self, pos_cache):
         self._pos_cache = pos_cache
+        for order_book_id, pos_dict in six.iteritems(pos_cache):
+            if order_book_id not in self._snapshot_cache:
+                self._snapshot_cache[order_book_id] = FakeTickDict(pos_dict)
 
     def cache_account(self, account_dict):
         self._account_dict = account_dict
@@ -162,6 +166,7 @@ class DataCache(object):
 
     @property
     def snapshot(self):
+        print(len(self._snapshot_cache))
         return self._snapshot_cache
 
     def set_models(self, account_model, position_model):
