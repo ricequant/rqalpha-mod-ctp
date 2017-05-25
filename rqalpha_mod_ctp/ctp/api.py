@@ -313,9 +313,6 @@ class CtpTdApi(TraderApi):
         """撤单错误回报（交易所）"""
         self.gateway.on_err(pRspInfo)
 
-    def OnRspQrySettlementInfoConfirm(self, pSettlementInfoConfirm, pRspInfo, nRequestID, bIsLast):
-        print(pSettlementInfoConfirm, pRspInfo)
-
     @property
     def req_id(self):
         self._req_id += 1
@@ -362,9 +359,9 @@ class CtpTdApi(TraderApi):
             return req_id
 
     def qrySettlementInfoConfirm(self):
-        req = ApiStruct.QrySettlementInfoConfirm(BrokerID=str2bytes(self.broker_id), InvestorID=str2bytes(self.user_id))
+        req = ApiStruct.SettlementInfoConfirm(BrokerID=str2bytes(self.broker_id), InvestorID=str2bytes(self.user_id))
         req_id = self.req_id
-        self.ReqQrySettlementInfoConfirm(req, req_id)
+        self.ReqSettlementInfoConfirm(req, req_id)
 
     def qryInstrument(self):
         self.ins_cache = {}
