@@ -19,7 +19,7 @@ import numpy as np
 from rqalpha.const import SIDE, POSITION_EFFECT, ORDER_STATUS, COMMISSION_TYPE, MARGIN_TYPE
 from rqalpha.model.order import LimitOrder
 
-from ..utils import make_order_book_id, make_underlying_symbol, is_future
+from ..utils import make_order_book_id, make_underlying_symbol, is_future, bytes2str
 from .pyctp import ApiStruct
 
 
@@ -98,7 +98,7 @@ class TickDict(DataDict):
         self.order_book_id = make_order_book_id(data.InstrumentID)
         try:
             self.date = int(data.TradingDay)
-            self.time = int((data.UpdateTime.replace(':', ''))) * 1000 + int(data.UpdateMillisec)
+            self.time = int((bytes2str(data.UpdateTime).replace(':', ''))) * 1000 + int(data.UpdateMillisec)
             self.open = data.OpenPrice
             self.last = data.LastPrice
             self.low = data.LowestPrice
@@ -243,7 +243,7 @@ class InstrumentDict(DataDict):
             self.long_margin_ratio = data.LongMarginRatio
             self.short_margin_ratio = data.ShortMarginRatio
             self.margin_type = MARGIN_TYPE.BY_MONEY
-            self.instrument_id = data.InstrumentID
+            self.instrument_id = bytes2str(data.InstrumentID)
             self.is_valid = True
         else:
             self.is_valid = False

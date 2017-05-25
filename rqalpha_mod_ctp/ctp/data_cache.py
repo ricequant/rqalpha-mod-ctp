@@ -166,7 +166,6 @@ class DataCache(object):
 
     @property
     def snapshot(self):
-        print(len(self._snapshot_cache))
         return self._snapshot_cache
 
     def set_models(self, account_model, position_model):
