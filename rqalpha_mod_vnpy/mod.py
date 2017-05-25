@@ -28,7 +28,7 @@ from .ctp.data_cache import DataCache
 vn_ctp_path = None
 
 
-class VNPYMod(AbstractMod):
+class CtpMod(AbstractMod):
     def __init__(self):
         self._env = None
         self._gateway = None

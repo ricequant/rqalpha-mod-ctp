@@ -22,7 +22,7 @@ __config__ = {
     "all_day": True,
     "query_interval": 2,
     "default_data_source": True,
-    "temp_path": "./vnpy_temp",
+    "temp_path": "./ctp_temp",
     "CTP": {
         'userID': None,
         'password': None,
@@ -34,5 +34,5 @@ __config__ = {
 
 
 def load_mod():
-    from .mod import VNPYMod
-    return VNPYMod()
+    from .mod import CtpMod
+    return CtpMod()
