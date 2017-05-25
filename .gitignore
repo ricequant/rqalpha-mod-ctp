@@ -1,0 +1,12 @@
+/*.egg-info
+.cache/
+dist/
+.idea
+.vscode
+__pycache__
+*.bcolz
+*.pk
+*.h5
+*.pyc
+.coverage
+.tox
