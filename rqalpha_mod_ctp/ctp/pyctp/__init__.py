@@ -19,8 +19,13 @@ from ...utils import PY_VERSION, SYS_ARCHITECTURE, SYS_PLATFORM
 
 if SYS_PLATFORM == 'Linux' and PY_VERSION == '2.7' and SYS_ARCHITECTURE == '64bit':
     from .linux64_27 import ApiStruct, MdApi, TraderApi
+elif SYS_PLATFORM == 'Linux' and PY_VERSION == '3.4' and SYS_ARCHITECTURE == '64bit':
+    from .linux64_34 import ApiStruct, MdApi, TraderApi
 elif SYS_PLATFORM == 'Linux' and PY_VERSION == '3.5' and SYS_ARCHITECTURE == '64bit':
     from .linux64_35 import ApiStruct, MdApi, TraderApi
+elif SYS_PLATFORM == 'Linux' and PY_VERSION == '3.6' and SYS_ARCHITECTURE == '64bit':
+    from .linux64_36 import ApiStruct, MdApi, TraderApi
+
 else:
     raise ImportError('不存在对应该平台的 CTP 接口。')
 

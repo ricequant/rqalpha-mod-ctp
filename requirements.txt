@@ -1,4 +1,4 @@
 six
 numpy
 rqalpha
-dateutil
+dateutils
