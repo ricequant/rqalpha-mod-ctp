@@ -25,8 +25,6 @@ from .ctp_price_board import CtpPriceBoard
 from .ctp.gateway import CtpGateway
 from .ctp.data_cache import DataCache
 
-vn_ctp_path = None
-
 
 class CtpMod(AbstractMod):
     def __init__(self):
@@ -34,10 +32,6 @@ class CtpMod(AbstractMod):
         self._gateway = None
 
     def start_up(self, env, mod_config):
-        global vn_ctp_path
-
-        vn_ctp_path = os.path.join(mod_config.vn_trader_path, 'gateway/ctpGateway')
-
         self._env = env
         data_cache = DataCache()
         self._gateway = CtpGateway(env, data_cache,
