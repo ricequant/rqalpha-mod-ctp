@@ -17,9 +17,10 @@
 import six
 
 from rqalpha.model.base_position import Positions
-from rqalpha.model.account.future_account import FutureAccount, margin_of
 from rqalpha.model.order import Order
 from rqalpha.const import SIDE, POSITION_EFFECT, ORDER_STATUS, ACCOUNT_TYPE
+
+from ..utils import margin_of
 
 
 class DataCache(object):

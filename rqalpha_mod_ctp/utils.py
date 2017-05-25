@@ -14,18 +14,48 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import timedelta
 import re
+import platform
 
 from rqalpha.environment import Environment
 from rqalpha.const import POSITION_EFFECT, COMMISSION_TYPE
 
 
+PY_VERSION = platform.python_version()[:3]
+SYS_PLATFORM = platform.system()
+SYS_ARCHITECTURE = platform.architecture()[0]
+
+
+def str2bytes(obj):
+    if PY_VERSION == '2.7':
+        return obj
+    else:
+        if isinstance(obj, str):
+            return obj.encode('GBK')
+        else:
+            return obj
+
+
+def bytes2str(obj):
+    if PY_VERSION == '2.7':
+        return obj
+    else:
+        if isinstance(obj, bytes):
+            return obj.decode('GBK')
+        else:
+            return obj
+
+
 def make_underlying_symbol(id_or_symbol):
-    return filter(lambda x: x not in '0123456789 ', id_or_symbol).upper()
+    id_or_symbol = bytes2str(id_or_symbol)
+    if PY_VERSION == '2.7':
+        return filter(lambda x: x not in '0123456789 ', id_or_symbol).upper()
+    else:
+        return ''.join(list(filter(lambda x: x not in '0123456789 ', 'rb1705'))).upper()
 
 
 def make_order_book_id(symbol):
+    symbol = bytes2str(symbol)
     if len(symbol) < 4:
         return None
     if symbol[-4] not in '0123456789':
@@ -58,7 +88,17 @@ def cal_commission(trade_dict, position_effect):
     return commission
 
 
+def margin_of(order_book_id, quantity, price):
+    env = Environment.get_instance()
+    margin_info = env.data_proxy.get_margin_info(order_book_id)
+    margin_multiplier = env.config.base.margin_multiplier
+    margin_rate = margin_info['long_margin_ratio'] * margin_multiplier
+    contract_multiplier = env.get_instrument(order_book_id).contract_multiplier
+    return quantity * contract_multiplier * price * margin_rate
+
+
 def is_future(order_book_id):
+    order_book_id = bytes2str(order_book_id)
     if order_book_id is None:
         return False
     return re.match('^[a-zA-Z]+[0-9]+$', order_book_id) is not None

@@ -15,10 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import platform
+from ...utils import PY_VERSION, SYS_ARCHITECTURE, SYS_PLATFORM
 
-if platform.system() == 'Linux' and platform.python_version().startswith('2.7') and platform.architecture()[0] == '64bit':
+if SYS_PLATFORM == 'Linux' and PY_VERSION == '2.7' and SYS_ARCHITECTURE == '64bit':
     from .linux64_27 import ApiStruct, MdApi, TraderApi
+elif SYS_PLATFORM == 'Linux' and PY_VERSION == '3.5' and SYS_ARCHITECTURE == '64bit':
+    from .linux64_35 import ApiStruct, MdApi, TraderApi
 else:
     raise ImportError('不存在对应该平台的 CTP 接口。')
 
