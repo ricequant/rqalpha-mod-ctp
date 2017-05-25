@@ -143,7 +143,7 @@ class DataCache(object):
             oldest_price, oldest_quantity = holding_list.pop()
             if oldest_quantity > left_quantity:
                 consumed_quantity = left_quantity
-                holding_list.append(oldest_price, oldest_quantity - left_quantity)
+                holding_list.append((oldest_price, oldest_quantity - left_quantity))
             else:
                 consumed_quantity = oldest_quantity
             left_quantity -= consumed_quantity
