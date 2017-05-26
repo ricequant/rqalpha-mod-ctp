@@ -259,7 +259,8 @@ class CommissionDict(DataDict):
         self.commission_type = None
 
         self.is_valid = False
-        self.update_data(data)
+        if data is not None:
+            self.update_data(data)
 
     def update_data(self, data):
         self.underlying_symbol = make_underlying_symbol(data.InstrumentID)
