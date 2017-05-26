@@ -50,11 +50,10 @@ def query_in_sync(func):
 
 
 class CtpMdApi(MdApi):
-    def __init__(self, gateway, temp_path, user_id, password, broker_id, address, api_name='ctp_md'):
+    def __init__(self, gateway, user_id, password, broker_id, address, api_name='ctp_md'):
         super(CtpMdApi, self).__init__()
 
         self.gateway = gateway
-        self.temp_path = temp_path
         self._req_id = 0
 
         self.connected = False
@@ -168,11 +167,10 @@ class CtpMdApi(MdApi):
 
 
 class CtpTdApi(TraderApi):
-    def __init__(self, gateway, temp_path, user_id, password, broker_id, address, auth_code, user_production_info, api_name='ctp_td'):
+    def __init__(self, gateway, user_id, password, broker_id, address, auth_code, user_production_info, api_name='ctp_td'):
         super(CtpTdApi, self).__init__()
 
         self.gateway = gateway
-        self.temp_path = temp_path
         self._req_id = 0
 
         self.connected = False

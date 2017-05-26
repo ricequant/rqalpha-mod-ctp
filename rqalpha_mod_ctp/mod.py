@@ -34,8 +34,7 @@ class CtpMod(AbstractMod):
     def start_up(self, env, mod_config):
         self._env = env
         data_cache = DataCache()
-        self._gateway = CtpGateway(env, data_cache,
-                                   mod_config.temp_path, mod_config.CTP.userID, mod_config.CTP.password,
+        self._gateway = CtpGateway(env, data_cache, mod_config.CTP.userID, mod_config.CTP.password,
                                    mod_config.CTP.brokerID)
         self._gateway.init_td_api(mod_config.CTP.tdAddress)
         if mod_config.default_data_source:

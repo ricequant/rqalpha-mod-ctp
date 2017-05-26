@@ -35,13 +35,12 @@ from ..utils import cal_commission
 
 
 class CtpGateway(object):
-    def __init__(self, env, data_cache, temp_path, user_id, password, broker_id, retry_times=5, retry_interval=1):
+    def __init__(self, env, data_cache, user_id, password, broker_id, retry_times=5, retry_interval=1):
         self._env = env
 
         self.td_api = None
         self.md_api = None
 
-        self.temp_path = temp_path
         self.user_id = user_id
         self.password = password
         self.broker_id = broker_id
@@ -70,7 +69,7 @@ class CtpGateway(object):
             self._qry_position()
             self._qry_order()
             self._data_update_date = date.today()
-            # self._qry_commission()
+            self._qry_commission()
 
         sleep(5)
         self.on_log('数据同步完成。')
@@ -78,11 +77,11 @@ class CtpGateway(object):
         self._env.event_bus.add_listener(EVENT.POST_UNIVERSE_CHANGED, self.on_universe_changed)
 
     def init_md_api(self, md_address):
-        self.md_api = CtpMdApi(self, self.temp_path, self.user_id, self.password, self.broker_id, md_address)
+        self.md_api = CtpMdApi(self, self.user_id, self.password, self.broker_id, md_address)
         self._query_returns[self.md_api.api_name] = {}
 
     def init_td_api(self, td_address, auth_code=None, user_production_info=None):
-        self.td_api = CtpTdApi(self, self.temp_path, self.user_id, self.password, self.broker_id, td_address, auth_code, user_production_info)
+        self.td_api = CtpTdApi(self, self.user_id, self.password, self.broker_id, td_address, auth_code, user_production_info)
         self._query_returns[self.td_api.api_name] = {}
 
     def submit_order(self, order):
