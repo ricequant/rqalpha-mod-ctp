@@ -20,7 +20,6 @@ __config__ = {
     "all_day": True,
     "query_interval": 2,
     "default_data_source": True,
-    "temp_path": "./ctp_temp",
     "CTP": {
         'userID': None,
         'password': None,
