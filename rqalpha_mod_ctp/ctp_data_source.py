@@ -22,17 +22,18 @@ from datetime import date
 
 
 class CtpDataSource(BaseDataSource):
-    def __init__(self, env, data_cache):
+    def __init__(self, env, md_gateway, trade_gateway):
         path = env.config.base.data_bundle_path
         super(CtpDataSource, self).__init__(path)
-        self._cache = data_cache
+        self._md_gateway = md_gateway
+        self._md_gateway = trade_gateway
 
     def current_snapshot(self, instrument, frequency, dt):
         if frequency != 'tick':
             raise NotImplementedError
 
         order_book_id = instrument.order_book_id
-        tick_snapshot = self._cache.snapshot.get(order_book_id)
+        tick_snapshot = self._md_gateway.snapshot.get(order_book_id)
         if tick_snapshot is None:
             system_log.error('Cannot find such tick whose order_book_id is {} ', order_book_id)
         return SnapshotObject(instrument, tick_snapshot, dt)
@@ -47,8 +48,8 @@ class CtpDataSource(BaseDataSource):
     def get_future_info(self, instrument, hedge_type):
         order_book_id = instrument.order_book_id
         try:
-            underlying_symbol = self._cache.ins.get(order_book_id).underlying_symbol
+            underlying_symbol = self._trading_dates.get_ins_dict(order_book_id).underlying_symbol
             hedge_flag = hedge_type.value
-            return self._cache.future_info.get(underlying_symbol).get(hedge_flag)
+            return self._trading_dates.get_future_info(underlying_symbol).get(hedge_flag)
         except AttributeError:
             return None

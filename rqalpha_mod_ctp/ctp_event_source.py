@@ -35,10 +35,10 @@ class TimePeriod(Enum):
 
 # TODO: 目前只考虑了期货的场景
 class CtpEventSource(AbstractEventSource):
-    def __init__(self, env, mod_config, gateway):
+    def __init__(self, env, mod_config, md_gateway):
         self._env = env
         self._mod_config = mod_config
-        self._gateway = gateway
+        self._md_gateway = md_gateway
         self._before_trading_processed = False
         self._after_trading_processed = False
         self._time_period = None
@@ -127,7 +127,7 @@ class CtpEventSource(AbstractEventSource):
                     self._before_trading_processed = True
                     continue
                 else:
-                    tick = self._gateway.get_tick()
+                    tick = self._md_gateway.get_tick()
                     dt_str = ''.join((str(tick.date), str(float(tick.time) / 1000))) if tick.time >= 100000000 else '0'.join((str(tick.date), str(float(tick.time) / 1000)))
                     calendar_dt = parse(dt_str.split('.')[0]) + timedelta(milliseconds=100 * int(dt_str.split('.')[1]))
                     if calendar_dt.hour > 20:

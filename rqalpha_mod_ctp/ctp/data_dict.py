@@ -379,7 +379,7 @@ class TradeDict(DataDict):
         self.side = None
         self.exchange_id = None
         self.position_effect = None
-        self.amount = None
+        self.quantity = None
         self.style = None
         self.price = None
 
@@ -409,7 +409,7 @@ class TradeDict(DataDict):
             else:
                 self.position_effect = POSITION_EFFECT.CLOSE
 
-        self.amount = data.Volume
+        self.quantity = data.Volume
         self.price = data.Price
         self.style = LimitOrder(self.price)
 

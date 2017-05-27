@@ -139,14 +139,8 @@ class CtpMdApi(MdApi):
         else:
             self.login()
 
-    def subscribe(self, order_book_ids):
+    def subscribe(self, ins_id_list):
         """订阅合约"""
-        ins_id_list = [
-            str2bytes(str(ins_dict.instrument_id)) for ins_dict in [
-                self.gateway.get_ins_dict(order_book_id) for order_book_id in order_book_ids
-                ] if ins_dict is not None
-            ]
-
         if len(ins_id_list) > 0:
             self.SubscribeMarketData(ins_id_list)
 
@@ -167,7 +161,7 @@ class CtpMdApi(MdApi):
 
 
 class CtpTdApi(TraderApi):
-    def __init__(self, gateway, user_id, password, broker_id, address, auth_code, user_production_info, api_name='ctp_td'):
+    def __init__(self, gateway, user_id, password, broker_id, address, api_name='ctp_td'):
         super(CtpTdApi, self).__init__()
 
         self.gateway = gateway
@@ -181,8 +175,8 @@ class CtpTdApi(TraderApi):
         self.password = password
         self.broker_id = broker_id
         self.address = address
-        self.auth_code = auth_code
-        self.user_production_info = user_production_info
+        self.auth_code = None
+        self.user_production_info = None
 
         self.front_id = 0
         self.session_id = 0

@@ -73,18 +73,18 @@ def cal_commission(trade_dict, position_effect):
     if info['commission_type'] == COMMISSION_TYPE.BY_MONEY:
         contract_multiplier = env.get_instrument(trade_dict.order_book_id).contract_multiplier
         if position_effect == POSITION_EFFECT.OPEN:
-            commission += trade_dict.price * trade_dict.amount * contract_multiplier * info['open_commission_ratio']
+            commission += trade_dict.price * trade_dict.quantity * contract_multiplier * info['open_commission_ratio']
         elif position_effect == POSITION_EFFECT.CLOSE:
-            commission += trade_dict.price * trade_dict.amount * contract_multiplier * info['close_commission_ratio']
+            commission += trade_dict.price * trade_dict.quantity * contract_multiplier * info['close_commission_ratio']
         elif position_effect == POSITION_EFFECT.CLOSE_TODAY:
-            commission += trade_dict.price * trade_dict.amount * contract_multiplier * info['close_commission_today_ratio']
+            commission += trade_dict.price * trade_dict.quantity * contract_multiplier * info['close_commission_today_ratio']
     else:
         if position_effect == POSITION_EFFECT.OPEN:
-            commission += trade_dict.amount * info['open_commission_ratio']
+            commission += trade_dict.quantity * info['open_commission_ratio']
         elif position_effect == POSITION_EFFECT.CLOSE:
-            commission += trade_dict.amount * info['close_commission_ratio']
+            commission += trade_dict.quantity * info['close_commission_ratio']
         elif position_effect == POSITION_EFFECT.CLOSE_TODAY:
-            commission += trade_dict.amount * info['close_commission_today_ratio']
+            commission += trade_dict.quantity * info['close_commission_today_ratio']
     return commission
 
 

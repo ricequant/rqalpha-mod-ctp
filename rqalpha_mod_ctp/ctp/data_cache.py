@@ -20,33 +20,35 @@ from rqalpha.model.base_position import Positions
 from rqalpha.model.order import Order
 from rqalpha.const import SIDE, POSITION_EFFECT, ORDER_STATUS, ACCOUNT_TYPE
 
-from .data_dict import FakeTickDict
+from .data_dict import FakeTickDict, OrderDict, TradeDict
 from ..utils import margin_of
 
 
 class DataCache(object):
     def __init__(self):
-        self._ins_cache = {}
+        self.ins = {}
         self._future_info_cache = {}
         self._account_dict = None
         self._pos_cache = {}
         self._trade_cache = {}
         self._qry_order_cache = {}
 
-        self._snapshot_cache = {}
+        self.snapshot = {}
 
         self._order_cache = {}
+
+        self.open_orders = []
 
         self._account_model = None
         self._position_model = None
 
     def cache_ins(self, ins_cache):
-        self._ins_cache = ins_cache
+        self.ins = ins_cache
         self._future_info_cache = {ins_dict.underlying_symbol: {'speculation': {
                 'long_margin_ratio': ins_dict.long_margin_ratio,
                 'short_margin_ratio': ins_dict.short_margin_ratio,
                 'margin_type': ins_dict.margin_type,
-            }} for ins_dict in self._ins_cache.values()}
+            }} for ins_dict in self.ins.values()}
 
     def cache_commission(self, underlying_symbol, commission_dict):
         self._future_info_cache[underlying_symbol]['speculation'].update({
@@ -56,11 +58,19 @@ class DataCache(object):
             'commission_type': commission_dict.commission_type,
         })
 
+    def cache_open_order(self, order):
+        if order not in self.open_orders:
+            self.open_orders.append(order)
+
+    def remove_open_order(self, order):
+        if order in self.open_orders:
+            self.open_orders.remove(order)
+
     def cache_position(self, pos_cache):
         self._pos_cache = pos_cache
         for order_book_id, pos_dict in six.iteritems(pos_cache):
-            if order_book_id not in self._snapshot_cache:
-                self._snapshot_cache[order_book_id] = FakeTickDict(pos_dict)
+            if order_book_id not in self.snapshot:
+                self.snapshot[order_book_id] = FakeTickDict(pos_dict)
 
     def cache_account(self, account_dict):
         self._account_dict = account_dict
@@ -68,28 +78,21 @@ class DataCache(object):
     def cache_qry_order(self, order_cache):
         self._qry_order_cache = order_cache
 
-    def cache_snapshot(self, tick_dict):
-        self._snapshot_cache[tick_dict.order_book_id] = tick_dict
-
     def cache_trade(self, trade_dict):
         if trade_dict.order_book_id not in self._trade_cache:
             self._trade_cache[trade_dict.order_book_id] = []
         self._trade_cache[trade_dict.order_book_id].append(trade_dict)
 
-    def get_cached_order(self, order_dict):
+    def get_cached_order(self, obj):
         try:
-            order = self._order_cache[order_dict.order_id]
+            order = self._order_cache[obj.order_id]
         except KeyError:
-            order = Order.__from_create__(order_dict.order_book_id, order_dict.quantity, order_dict.side, order_dict.style, order_dict.position_effect)
+            order = Order.__from_create__(obj.order_book_id, obj.quantity, obj.side, obj.style, obj.position_effect)
             self.cache_order(order)
         return order
 
     def cache_order(self, order):
         self._order_cache[order.order_id] = order
-
-    @property
-    def ins(self):
-        return self._ins_cache
 
     @property
     def future_info(self):
@@ -120,9 +123,9 @@ class DataCache(object):
                 sell_today_holding_list = []
                 for trade_dict in trades:
                     if trade_dict.side == SIDE.BUY and trade_dict.position_effect == POSITION_EFFECT.OPEN:
-                        buy_today_holding_list.append((trade_dict.price, trade_dict.amount))
+                        buy_today_holding_list.append((trade_dict.price, trade_dict.quantity))
                     elif trade_dict.side == SIDE.SELL and trade_dict.position_effect == POSITION_EFFECT.OPEN:
-                        sell_today_holding_list.append((trade_dict.price, trade_dict.amount))
+                        sell_today_holding_list.append((trade_dict.price, trade_dict.quantity))
 
                 self.process_today_holding_list(pos_dict.buy_today_quantity, buy_today_holding_list)
                 self.process_today_holding_list(pos_dict.sell_today_quantity, sell_today_holding_list)
@@ -163,10 +166,6 @@ class DataCache(object):
             [margin_of(order_dict.order_book_id, order_dict.unfilled_quantity, order_dict.price) for order_dict in
              self._qry_order_cache.values() if order_dict.status == ORDER_STATUS.ACTIVE])
         return account, static_value
-
-    @property
-    def snapshot(self):
-        return self._snapshot_cache
 
     def set_models(self, account_model, position_model):
         self._account_model = account_model
