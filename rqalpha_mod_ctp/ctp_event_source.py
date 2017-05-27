@@ -102,7 +102,7 @@ class CtpEventSource(AbstractEventSource):
 
     def events(self, start_date, end_date, frequency):
 
-        if not self._mod_config.all_day:
+        if not self._mod_config.event.all_day:
             while datetime.now().date() < start_date - timedelta(days=1):
                 continue
 

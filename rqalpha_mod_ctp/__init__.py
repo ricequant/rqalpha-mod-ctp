@@ -17,16 +17,20 @@
 
 
 __config__ = {
-    "all_day": True,
-    "query_interval": 2,
-    "default_event_source": True,
-    "CTP": {
-        'userID': None,
+    "login": {
+        'user_id': None,
         'password': None,
-        'brokerID': '9999',
-        'tdAddress': 'tcp://180.168.146.187:10000',
-        'mdAddress': 'tcp://180.168.212.228:41213'
-    }
+        'broker_id': "9999",
+    },
+    "event": {
+        "enabled": True,
+        "all_day": False,
+        "address": "tcp://180.168.212.228:41213",
+    },
+    "trade": {
+        "enabled": True,
+        "address": "tcp://180.168.146.187:10000",
+    },
 }
 
 

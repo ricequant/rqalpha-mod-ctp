@@ -31,15 +31,27 @@ rqalpha mod install -e .
 
 ```python
 
-{
-    "all_day": True,
-    "CTP": {
-        'userID': '',
-        'password': '',
-        'brokerID': '9999',
-        'tdAddress': 'tcp://180.168.146.187:10030',
-        'mdAddress': 'tcp://180.168.146.187:10031'
-    }
+{   
+    # CTP 登录信息
+    "login": {
+        'user_id': None,
+        'password': None,
+        'broker_id': "9999",
+    },
+    # 事件相关设置
+    "event": {
+        # 是否使用默认的 CTP 实时数据源
+        "enabled": True,
+        # 是否在非交易时间段内触发行情事件
+        "all_day": False,
+        "address": "tcp://180.168.212.228:41213",
+    },
+    # 交易相关设置
+    "trade": {
+        # 是否使用默认的 CTP 交易接口
+        "enabled": True,
+        "address": "tcp://180.168.146.187:10000",
+    },
 }
 
 ```
