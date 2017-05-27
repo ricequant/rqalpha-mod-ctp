@@ -46,7 +46,7 @@ class CtpMod(AbstractMod):
         if mod_config.trade.enabled:
             self._trade_gateway.connect(user_id, password, broker_id, mod_config.trade.address)
         if mod_config.event.enabled:
-            self._md_gateway.connect(user_id, password, broker_id, mod_config.trade.address)
+            self._md_gateway.connect(user_id, password, broker_id, mod_config.event.address)
 
         if mod_config.trade.enabled:
             self._env.set_broker(CtpBroker(self._trade_gateway))

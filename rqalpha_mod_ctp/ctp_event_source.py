@@ -59,7 +59,7 @@ class CtpEventSource(AbstractEventSource):
             return (time.hour == 15 and time.minute >= 30) or time.hour == 16
 
         def in_trading_time(time):
-            if self._mod_config.all_day:
+            if self._mod_config.event.all_day:
                 return True
 
             if time.hour < 15 or time.hour >= 21:

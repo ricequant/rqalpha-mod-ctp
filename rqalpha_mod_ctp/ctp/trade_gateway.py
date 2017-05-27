@@ -254,7 +254,7 @@ class TradeGateway(object):
         system_log.info(log)
 
     @staticmethod
-    def on_err(error):
+    def on_err(error, func_name):
         system_log.error('CTP 错误，错误代码：%s，错误信息：%s' % (str(error.ErrorID), error.ErrorMsg.decode('GBK')))
 
 

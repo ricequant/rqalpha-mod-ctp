@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 from functools import wraps
 
 from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT
@@ -79,25 +80,25 @@ class CtpMdApi(MdApi):
 
     def OnHeartBeatWarning(self, nTimeLapse):
         """心跳报警"""
-        self.gateway.on_err('心跳报警')
+        pass
 
     def OnRspError(self, pRspInfo, nRequestID, bIsLast):
         """错误回报"""
-        self.gateway.on_err(pRspInfo)
+        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
     def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
         """登陆回报"""
         if pRspInfo.ErrorID == 0:
             self.logged_in = True
         else:
-            self.gateway.on_err(pRspInfo)
+            self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
     def OnRspUserLogout(self, pUserLogout, pRspInfo, nRequestID, bIsLast):
         """登出回报"""
         if pRspInfo.ErrorID == 0:
             self.logged_in = False
         else:
-            self.gateway.on_err(pRspInfo)
+            self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
     def OnRspSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
         """订阅合约回报"""
@@ -203,7 +204,7 @@ class CtpTdApi(TraderApi):
 
     def OnHeartBeatWarning(self, nTimeLapse):
         """心跳报警"""
-        self.gateway.on_err('心跳报警')
+        pass
 
     def OnRspAuthenticate(self, pRspAuthenticate, pRspInfo, nRequestID, bIsLast):
         """验证客户端回报"""
@@ -211,7 +212,7 @@ class CtpTdApi(TraderApi):
             self.authenticated = True
             self.login()
         else:
-            self.gateway.on_err(pRspInfo)
+            self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
     def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
         """登陆回报"""
@@ -221,7 +222,7 @@ class CtpTdApi(TraderApi):
             self.logged_in = True
             self.qrySettlementInfoConfirm()
         else:
-            self.gateway.on_err(pRspInfo)
+            self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
     def OnRspUserLogout(self, pUserLogout, pRspInfo, nRequestID, bIsLast):
         """登出回报"""
@@ -236,7 +237,7 @@ class CtpTdApi(TraderApi):
             self.gateway.on_order(order_dict)
 
     def OnRspOrderAction(self, pInputOrderAction, pRspInfo, nRequestID, bIsLast):
-        self.gateway.on_err(pRspInfo)
+        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
     @query_in_sync
     def OnRspQryOrder(self, pOrder, pRspInfo, nRequestID, bIsLast):
@@ -281,7 +282,7 @@ class CtpTdApi(TraderApi):
 
     def OnRspError(self, pRspInfo, nRequestID, bIsLast):
         """错误回报"""
-        self.gateway.on_err(pRspInfo)
+        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
     def OnRtnOrder(self, pOrder):
         """报单回报"""
@@ -296,14 +297,14 @@ class CtpTdApi(TraderApi):
 
     def OnErrRtnOrderInsert(self, pInputOrder, pRspInfo):
         """发单错误回报（交易所）"""
-        self.gateway.on_err(pRspInfo)
+        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
         order_dict = OrderDict(pInputOrder)
         if order_dict.is_valid:
             self.gateway.on_order(order_dict)
 
     def OnErrRtnOrderAction(self, pOrderAction, pRspInfo):
         """撤单错误回报（交易所）"""
-        self.gateway.on_err(pRspInfo)
+        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
     @property
     def req_id(self):
