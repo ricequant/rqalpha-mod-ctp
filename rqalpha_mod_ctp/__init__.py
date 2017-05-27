@@ -19,7 +19,7 @@
 __config__ = {
     "all_day": True,
     "query_interval": 2,
-    "default_data_source": True,
+    "default_event_source": True,
     "CTP": {
         'userID': None,
         'password': None,

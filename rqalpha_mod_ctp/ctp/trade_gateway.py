@@ -69,7 +69,7 @@ class TradeGateway(object):
             self._qry_position()
             self._qry_order()
             self._data_update_date = date.today()
-            # self._qry_commission()
+            self._qry_commission()
 
         sleep(5)
         self.on_log('数据同步完成。')

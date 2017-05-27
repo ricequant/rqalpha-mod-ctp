@@ -34,17 +34,22 @@ class CtpMod(AbstractMod):
     def start_up(self, env, mod_config):
         self._env = env
 
-        self._md_gateway = MdGateway(self._env)
         self._trade_gateway = TradeGateway(self._env)
+        if mod_config.default_event_source:
+            self._md_gateway = MdGateway(self._env)
 
         self._trade_gateway.connect(mod_config.CTP.userID, mod_config.CTP.password, mod_config.CTP.brokerID, mod_config.CTP.tdAddress)
-        self._md_gateway.connect(mod_config.CTP.userID, mod_config.CTP.password, mod_config.CTP.brokerID, mod_config.CTP.mdAddress)
+        if mod_config.default_event_source:
+            self._md_gateway.connect(mod_config.CTP.userID, mod_config.CTP.password, mod_config.CTP.brokerID, mod_config.CTP.mdAddress)
 
         self._env.set_broker(CtpBroker(self._trade_gateway))
-        self._env.set_event_source(CtpEventSource(env, mod_config, self._md_gateway))
-        self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
-        self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
+
+        if mod_config.default_event_source:
+            self._env.set_event_source(CtpEventSource(env, mod_config, self._md_gateway))
+            self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
+            self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
 
     def tear_down(self, code, exception=None):
-        self._md_gateway.exit()
+        if self._md_gateway:
+            self._md_gateway.exit()
         self._trade_gateway.exit()
