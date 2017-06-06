@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import six
 import re
 import platform
 
@@ -27,7 +28,7 @@ SYS_ARCHITECTURE = platform.architecture()[0]
 
 
 def str2bytes(obj):
-    if PY_VERSION == '2.7':
+    if six.PY2:
         return obj
     else:
         if isinstance(obj, str):
@@ -37,7 +38,7 @@ def str2bytes(obj):
 
 
 def bytes2str(obj):
-    if PY_VERSION == '2.7':
+    if six.PY2:
         return obj
     else:
         if isinstance(obj, bytes):
@@ -48,7 +49,7 @@ def bytes2str(obj):
 
 def make_underlying_symbol(id_or_symbol):
     id_or_symbol = bytes2str(id_or_symbol)
-    if PY_VERSION == '2.7':
+    if six.PY2:
         return filter(lambda x: x not in '0123456789 ', id_or_symbol).upper()
     else:
         return ''.join(list(filter(lambda x: x not in '0123456789 ', 'rb1705'))).upper()
