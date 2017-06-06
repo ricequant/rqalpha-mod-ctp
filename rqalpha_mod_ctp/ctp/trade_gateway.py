@@ -19,7 +19,7 @@ from six import iteritems, itervalues
 from datetime import date
 
 from rqalpha.utils.logger import system_log
-from rqalpha.const import ACCOUNT_TYPE, ORDER_STATUS,  SIDE, POSITION_EFFECT
+from rqalpha.const import DEFAULT_ACCOUNT_TYPE, ORDER_STATUS,  SIDE, POSITION_EFFECT
 from rqalpha.environment import Environment
 from rqalpha.events import EVENT
 from rqalpha.events import Event as RqEvent
@@ -84,13 +84,16 @@ class TradeGateway(object):
         self.td_api.cancelOrder(order)
 
     def get_portfolio(self):
-        FuturePosition = self._env.get_position_model(ACCOUNT_TYPE.FUTURE)
-        FutureAccount = self._env.get_account_model(ACCOUNT_TYPE.FUTURE)
+        FuturePosition = self._env.get_position_model(DEFAULT_ACCOUNT_TYPE.FUTURE.name)
+        FutureAccount = self._env.get_account_model(DEFAULT_ACCOUNT_TYPE.FUTURE.name)
         self._cache.set_models(FutureAccount, FuturePosition)
         future_account, static_value = self._cache.account
         start_date = self._env.config.base.start_date
         future_starting_cash = self._env.config.base.future_starting_cash
-        return Portfolio(start_date, static_value/future_starting_cash, future_starting_cash, {ACCOUNT_TYPE.FUTURE: future_account})
+        accounts = {
+            DEFAULT_ACCOUNT_TYPE.FUTURE.name: future_account
+        }
+        return Portfolio(start_date, static_value/future_starting_cash, future_starting_cash, accounts)
 
     def get_ins_dict(self, order_book_id=None):
         if order_book_id is not None:

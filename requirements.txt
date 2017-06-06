@@ -1,4 +1,4 @@
 six
 numpy
-rqalpha
 dateutils
+rqalpha>=2.3.0
