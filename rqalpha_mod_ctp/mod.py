@@ -28,25 +28,16 @@ from .ctp.trade_gateway import TradeGateway
 class CtpMod(AbstractMod):
     def __init__(self):
         self._env = None
+        self._mod_config = None
         self._md_gateway = None
         self._trade_gateway = None
 
     def start_up(self, env, mod_config):
-        user_id = mod_config.login.user_id
-        password = mod_config.login.password
-        broker_id = mod_config.login.broker_id
-
         self._env = env
+        self._mod_config = mod_config
 
-        if mod_config.trade.enabled:
-            self._trade_gateway = TradeGateway(self._env)
-        if mod_config.event.enabled:
-            self._md_gateway = MdGateway(self._env)
-
-        if mod_config.trade.enabled:
-            self._trade_gateway.connect(user_id, password, broker_id, mod_config.trade.address)
-        if mod_config.event.enabled:
-            self._md_gateway.connect(user_id, password, broker_id, mod_config.event.address)
+        self._init_trade_gateway()
+        self._init_md_gateway()
 
         if mod_config.trade.enabled:
             self._env.set_broker(CtpBroker(self._trade_gateway))
@@ -57,7 +48,30 @@ class CtpMod(AbstractMod):
             self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
 
     def tear_down(self, code, exception=None):
-        if self._md_gateway:
+        if self._md_gateway is not None:
             self._md_gateway.exit()
-        if self._trade_gateway:
+        if self._trade_gateway is not None:
             self._trade_gateway.exit()
+
+    def _init_trade_gateway(self):
+        if not self._mod_config.trade.enabled:
+            return
+        user_id = self._mod_config.login.user_id
+        password = self._mod_config.login.password
+        broker_id = self._mod_config.login.broker_id
+        trade_frontend_uri = self._mod_config.trade.address
+
+        self._trade_gateway = TradeGateway(self._env)
+        self._trade_gateway.connect(user_id, password, broker_id, trade_frontend_uri)
+
+    def _init_md_gateway(self):
+        if not self._mod_config.event.enabled:
+            return
+        user_id = self._mod_config.login.user_id
+        password = self._mod_config.login.password
+        broker_id = self._mod_config.login.broker_id
+        md_frontend_uri = self._mod_config.event.address
+
+        self._md_gateway = MdGateway(self._env)
+        self._md_gateway.connect(user_id, password, broker_id, md_frontend_uri)
+
