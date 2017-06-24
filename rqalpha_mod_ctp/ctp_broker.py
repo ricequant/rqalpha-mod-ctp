@@ -47,9 +47,6 @@ class CtpBroker(AbstractBroker):
     def cancel_order(self, order):
         self._trade_gateway.cancel_order(order)
 
-    def update(self, calendar_dt, trading_dt, bar_dict):
-        pass
-
     def get_portfolio(self):
         return self._trade_gateway.get_portfolio()
 

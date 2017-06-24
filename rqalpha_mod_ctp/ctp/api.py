@@ -143,6 +143,7 @@ class CtpMdApi(MdApi):
     def subscribe(self, ins_id_list):
         """订阅合约"""
         if len(ins_id_list) > 0:
+            ins_id_list = [str2bytes(i) for i in ins_id_list]
             self.SubscribeMarketData(ins_id_list)
 
     def login(self):
