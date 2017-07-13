@@ -36,13 +36,12 @@ class CtpMod(AbstractMod):
         self._env = env
         self._mod_config = mod_config
 
-        self._init_trade_gateway()
-        self._init_md_gateway()
-
         if mod_config.trade.enabled:
+            self._init_trade_gateway()
             self._env.set_broker(CtpBroker(env, self._trade_gateway))
 
         if mod_config.event.enabled:
+            self._init_md_gateway()
             self._env.set_event_source(CtpEventSource(env, mod_config, self._md_gateway))
             self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
             self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
