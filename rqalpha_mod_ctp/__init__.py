@@ -14,24 +14,72 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import click
 
+from rqalpha.__main__ import cli
 
 __config__ = {
-    "login": {
-        'user_id': None,
-        'password': None,
-        'broker_id': "9999",
-    },
-    "event": {
-        "enabled": True,
-        "all_day": False,
-        "address": "tcp://180.168.212.228:41213",
-    },
-    "trade": {
-        "enabled": True,
-        "address": "tcp://180.168.146.187:10000",
-    },
+    "enabled": True,
+
+    "user_id": None,
+    "password": None,
+    "broker_id": None,
+    "td_addr": 'tcp://180.168.146.187:10000',
+    "md_addr": 'tcp://180.168.212.228:41213',
+    "all_day": False,
 }
+
+
+cli_prefix = "mod__ctp__"
+
+cli.commands['run'].params.append(
+    click.Option(
+        ('-ctpu', '--ctp-user-id', cli_prefix + 'user_id'),
+        type=click.STRING,
+        help="[ctp] uesr_id",
+    )
+)
+
+cli.commands['run'].params.append(
+    click.Option(
+        ('-ctpp', '--ctp-password', cli_prefix + 'password'),
+        type=click.STRING,
+        help="[ctp] password",
+    )
+)
+
+cli.commands['run'].params.append(
+    click.Option(
+        ('-ctpb', '--ctp-broker-id', cli_prefix + 'broker_id'),
+        type=click.STRING,
+        help="[ctp] broker_id",
+    )
+)
+
+cli.commands['run'].params.append(
+    click.Option(
+        ('-ctpta', '--ctp-td-addr', cli_prefix + 'td_addr'),
+        type=click.STRING,
+        help="[ctp] trade address",
+    )
+)
+
+cli.commands['run'].params.append(
+    click.Option(
+        ('-ctpma', '--ctp-md-addr', cli_prefix + 'md_addr'),
+        type=click.STRING,
+        help="[ctp] market data address",
+    )
+)
+
+
+cli.commands['run'].params.append(
+    click.Option(
+        ('-ctpad', '--ctp-all-day', cli_prefix + 'all_day'),
+        type=click.BOOL,
+        help="[ctp] run strategy all day",
+    )
+)
 
 
 def load_mod():

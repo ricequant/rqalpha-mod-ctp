@@ -36,11 +36,11 @@ class CtpMod(AbstractMod):
         self._env = env
         self._mod_config = mod_config
 
-        if mod_config.trade.enabled:
+        if mod_config.user_id and mod_config.password and mod_config.td_addr:
             self._init_trade_gateway()
             self._env.set_broker(CtpBroker(env, self._trade_gateway))
 
-        if mod_config.event.enabled:
+        if mod_config.user_id and mod_config.password and mod_config.md_addr:
             self._init_md_gateway()
             self._env.set_event_source(CtpEventSource(env, mod_config, self._md_gateway))
             self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
@@ -53,23 +53,19 @@ class CtpMod(AbstractMod):
             self._trade_gateway.exit()
 
     def _init_trade_gateway(self):
-        if not self._mod_config.trade.enabled:
-            return
-        user_id = self._mod_config.login.user_id
-        password = self._mod_config.login.password
-        broker_id = self._mod_config.login.broker_id
-        trade_frontend_uri = self._mod_config.trade.address
+        user_id = self._mod_config.user_id
+        password = self._mod_config.password
+        broker_id = self._mod_config.broker_id
+        trade_frontend_uri = self._mod_config.td_addr
 
         self._trade_gateway = TradeGateway(self._env)
         self._trade_gateway.connect(user_id, password, broker_id, trade_frontend_uri)
 
     def _init_md_gateway(self):
-        if not self._mod_config.event.enabled:
-            return
-        user_id = self._mod_config.login.user_id
-        password = self._mod_config.login.password
-        broker_id = self._mod_config.login.broker_id
-        md_frontend_uri = self._mod_config.event.address
+        user_id = self._mod_config.user_id
+        password = self._mod_config.password
+        broker_id = self._mod_config.broker_id
+        md_frontend_uri = self._mod_config.md_addr
 
         self._md_gateway = MdGateway(self._env)
         self._md_gateway.connect(user_id, password, broker_id, md_frontend_uri)

@@ -1,4 +1,7 @@
 six
 numpy
 dateutils
-rqalpha>=2.3.0
+rqalpha>=3.0.2
+
+
+
