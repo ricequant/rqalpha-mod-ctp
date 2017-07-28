@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import numpy as np
+from dateutil.parser import parse
 
 from rqalpha.const import SIDE, POSITION_EFFECT, ORDER_STATUS, COMMISSION_TYPE, MARGIN_TYPE
 from rqalpha.model.order import LimitOrder
@@ -229,6 +230,7 @@ class InstrumentDict(DataDict):
         self.short_margin_ratio = None
         self.margin_type = None
         self.instrument_id = None
+        self.tick_size = None
 
         self.is_valid = False
 
@@ -244,6 +246,7 @@ class InstrumentDict(DataDict):
             self.short_margin_ratio = data.ShortMarginRatio
             self.margin_type = MARGIN_TYPE.BY_MONEY
             self.instrument_id = bytes2str(data.InstrumentID)
+            self.tick_size = float(data.PriceTick)
             self.is_valid = True
         else:
             self.is_valid = False
@@ -301,6 +304,8 @@ class OrderDict(DataDict):
         self.status = None
 
         self.style = None
+        self.calendar_dt = None
+        self.message = None
         self.is_valid = False
 
         self.update_data(data, rejected)
@@ -365,6 +370,9 @@ class OrderDict(DataDict):
                 pass
 
         self.style = LimitOrder(self.price)
+        self.calendar_dt = parse('{} {}'.format(bytes2str(data.InsertDate), bytes2str(data.InsertTime)))
+
+        self.message = bytes2str(data.StatusMsg)
 
         self.is_valid = True
 
@@ -383,13 +391,15 @@ class TradeDict(DataDict):
         self.style = None
         self.price = None
 
+        self.calendar_dt = None
+
         self.is_valid = False
         
         self.update_data(data)
 
     def update_data(self, data):
         self.order_id = int(data.OrderRef)
-        self.trade_id = data.TradeID
+        self.trade_id = int(data.TradeID)
         self.order_book_id = make_order_book_id(data.InstrumentID)
 
         self.side = SIDE_REVERSE.get(data.Direction, SIDE.BUY)
@@ -412,5 +422,6 @@ class TradeDict(DataDict):
         self.quantity = data.Volume
         self.price = data.Price
         self.style = LimitOrder(self.price)
+        self.calendar_dt = parse('{} {}'.format(bytes2str(data.TradeDate), bytes2str(data.TradeTime)))
 
         self.is_valid = True

@@ -16,6 +16,7 @@
 # limitations under the License.
 
 from rqalpha.interface import AbstractMod
+from rqalpha.const import RUN_TYPE, DEFAULT_ACCOUNT_TYPE
 from .ctp_event_source import CtpEventSource
 from .ctp_broker import CtpBroker
 from .ctp_data_source import CtpDataSource
@@ -27,13 +28,17 @@ from .ctp.trade_gateway import TradeGateway
 
 class CtpMod(AbstractMod):
     def __init__(self):
-        self._env = None
         self._mod_config = None
         self._md_gateway = None
         self._trade_gateway = None
+        self._env = None
 
     def start_up(self, env, mod_config):
         self._env = env
+
+        if self._env.config.base.run_type != RUN_TYPE.LIVE_TRADING or DEFAULT_ACCOUNT_TYPE.FUTURE in self._env.config.base.accounts:
+            return
+
         self._mod_config = mod_config
 
         if mod_config.user_id and mod_config.password and mod_config.td_addr:

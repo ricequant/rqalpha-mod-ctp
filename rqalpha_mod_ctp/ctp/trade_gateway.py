@@ -18,7 +18,7 @@ from time import sleep
 from six import iteritems, itervalues
 from datetime import date
 
-from rqalpha.utils.logger import system_log
+from rqalpha.utils.logger import system_log, user_system_log
 from rqalpha.const import DEFAULT_ACCOUNT_TYPE, ORDER_STATUS,  SIDE, POSITION_EFFECT
 from rqalpha.environment import Environment
 from rqalpha.events import EVENT
@@ -30,7 +30,7 @@ from rqalpha.model.base_position import Positions
 
 from .api import CtpTdApi
 from .data_dict import FakeTickDict
-from ..utils import cal_commission, margin_of
+from ..utils import cal_commission, margin_of, bytes2str
 
 
 class TradeGateway(object):
@@ -56,6 +56,7 @@ class TradeGateway(object):
             self.td_api.connect()
             sleep(self._retry_interval * (i+1))
             if self.td_api.logged_in:
+                user_system_log.info('CTP 交易服务器登录成功')
                 self.on_log('CTP 交易服务器登录成功')
                 break
         else:
@@ -118,6 +119,7 @@ class TradeGateway(object):
             return
 
         order = self._cache.get_cached_order(order_dict)
+        order._message = order_dict.message
 
         account = Environment.get_instance().get_account(order.order_book_id)
 
@@ -128,7 +130,7 @@ class TradeGateway(object):
             if order_dict.status == ORDER_STATUS.ACTIVE:
                 self._cache.cache_open_order(order)
             elif order_dict.status in [ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED]:
-                order.mark_rejected('Order was rejected or cancelled.')
+                order.mark_rejected(order_dict.message)
                 self._env.event_bus.publish_event(RqEvent(EVENT.ORDER_UNSOLICITED_UPDATE, account=account, order=order))
                 self._cache.remove_open_order(order)
 
@@ -166,7 +168,7 @@ class TradeGateway(object):
             order = self._cache.get_cached_order(trade_dict)
             commission = cal_commission(trade_dict, order.position_effect)
             trade = Trade.__from_create__(
-                trade_dict.order_id, trade_dict.price, trade_dict.amount,
+                trade_dict.order_id, trade_dict.price, trade_dict.quantity,
                 trade_dict.side, trade_dict.position_effect, trade_dict.order_book_id, trade_id=trade_dict.trade_id,
                 commission=commission, frozen_price=trade_dict.price)
 
@@ -242,6 +244,9 @@ class TradeGateway(object):
 
     @property
     def open_orders(self):
+        for order in self._cache.open_orders:
+            if order._trading_dt is None and order._calendar_dt is not None:
+                order._trading_dt = Environment.get_instance().data_proxy.get_trading_dt(order._calendar_dt)
         return self._cache.open_orders
 
     @property
@@ -258,7 +263,7 @@ class TradeGateway(object):
 
     @staticmethod
     def on_err(error, func_name):
-        system_log.error('CTP 错误，错误代码：%s，错误信息：%s' % (str(error.ErrorID), error.ErrorMsg.decode('GBK')))
+        system_log.error('CTP 错误，错误代码：%s，错误信息：%s' % (str(error.ErrorID), bytes2str(error.ErrorMsg)))
 
 
 class DataCache(object):
@@ -324,6 +329,7 @@ class DataCache(object):
             order = self.orders[obj.order_id]
         except KeyError:
             order = Order.__from_create__(obj.order_book_id, obj.quantity, obj.side, obj.style, obj.position_effect)
+            order._calendar_dt = obj.calendar_dt
             self.cache_order(order)
         return order
 
@@ -347,6 +353,8 @@ class DataCache(object):
 
             position._buy_avg_open_price = pos_dict.buy_avg_open_price
             position._sell_avg_open_price = pos_dict.sell_avg_open_price
+
+            position._last_price = pos_dict.prev_settle_price
 
             if order_book_id in self.trades:
                 trades = sorted(self.trades[order_book_id], key=lambda t: t.trade_id, reverse=True)

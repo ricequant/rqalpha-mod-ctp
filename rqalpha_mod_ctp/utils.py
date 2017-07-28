@@ -33,6 +33,8 @@ def str2bytes(obj):
     else:
         if isinstance(obj, str):
             return obj.encode('GBK')
+        elif isinstance(obj, int):
+            return str(obj).encode('GBK')
         else:
             return obj
 

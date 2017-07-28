@@ -18,6 +18,7 @@ import sys
 from functools import wraps
 
 from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT
+from rqalpha.utils.logger import user_system_log
 
 from .pyctp import MdApi, TraderApi, ApiStruct
 from .data_dict import TickDict, PositionDict, AccountDict, InstrumentDict, OrderDict, TradeDict, CommissionDict
@@ -256,7 +257,8 @@ class CtpTdApi(TraderApi):
         if pInvestorPosition.InstrumentID:
             order_book_id = make_order_book_id(pInvestorPosition.InstrumentID)
             if order_book_id not in self.pos_cache:
-                self.pos_cache[order_book_id] = PositionDict(pInvestorPosition)
+                ins_dict = self.gateway.get_ins_dict(order_book_id)
+                self.pos_cache[order_book_id] = PositionDict(pInvestorPosition, ins_dict)
             else:
                 self.pos_cache[order_book_id].update_data(pInvestorPosition)
         if bIsLast:
@@ -406,12 +408,24 @@ class CtpTdApi(TraderApi):
     def sendOrder(self, order):
         ins_dict = self.gateway.get_ins_dict(order.order_book_id)
         if ins_dict is None:
-            return None
+            user_system_log.error('Send order failed, such instrument dose not exist.')
+            return
+        try:
+            price_type = ORDER_TYPE_MAPPING[order.type]
+        except KeyError:
+            user_system_log.error('Send order failed, such order type dose not exist.')
+            return
+
+        if order.type == ORDER_TYPE.LIMIT:
+            price = int(float(order.price) / ins_dict.tick_size) * ins_dict.tick_size
+        else:
+            price = order.price
+
         req = ApiStruct.InputOrder(
             InstrumentID=str2bytes(ins_dict.instrument_id),
-            LimitPrice=str2bytes(order.price),
-            VolumeTotalOriginal=str2bytes(order.quantity),
-            OrderPriceType=ORDER_TYPE_MAPPING.get(order.type, ''),
+            LimitPrice=float(price),
+            VolumeTotalOriginal=int(order.quantity),
+            OrderPriceType=price_type,
             Direction=SIDE_MAPPING.get(order.side, ''),
             CombOffsetFlag=POSITION_EFFECT_MAPPING.get(order.position_effect, ''),
 
@@ -435,6 +449,7 @@ class CtpTdApi(TraderApi):
     def cancelOrder(self, order):
         ins_dict = self.gateway.get_ins_dict(order.order_book_id)
         if ins_dict is None:
+            user_system_log.error('Cancel order failed, such instrument dose not exist.')
             return None
 
         req = ApiStruct.InputOrderAction(
