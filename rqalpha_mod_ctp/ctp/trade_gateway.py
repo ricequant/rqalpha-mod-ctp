@@ -15,10 +15,11 @@
 # limitations under the License.
 
 from time import sleep
+from copy import copy
 from six import iteritems, itervalues
 from datetime import date
 
-from rqalpha.utils.logger import system_log, user_system_log
+from rqalpha.utils.logger import system_log
 from rqalpha.const import DEFAULT_ACCOUNT_TYPE, ORDER_STATUS,  SIDE, POSITION_EFFECT
 from rqalpha.environment import Environment
 from rqalpha.events import EVENT
@@ -30,11 +31,11 @@ from rqalpha.model.base_position import Positions
 
 from .api import CtpTdApi
 from .data_dict import FakeTickDict
-from ..utils import cal_commission, margin_of, bytes2str
+from ..utils import cal_commission, margin_of, bytes2str, UserLogHelper
 
 
 class TradeGateway(object):
-    def __init__(self, env, que, retry_times=5, retry_interval=1):
+    def __init__(self, env, que, retry_times=5, retry_interval=2):
         self._env = env
         self._que = que
 
@@ -55,13 +56,14 @@ class TradeGateway(object):
         self.td_api = CtpTdApi(self, user_id, password, broker_id, td_address)
         for i in range(self._retry_times):
             self.td_api.connect()
-            sleep(self._retry_interval * (i+1))
+            sleep(self._retry_interval * (2 ** i))
             if self.td_api.logged_in:
-                user_system_log.info('CTP 交易服务器登录成功')
-                self.on_log('CTP 交易服务器登录成功')
+                UserLogHelper.log('CTP trade server connected', 'info')
+                self.on_log('CTP trade server connected')
+
                 break
         else:
-            raise RuntimeError('CTP 交易服务器连接或登录超时')
+            raise RuntimeError('CTP trade server connect or login timeout.')
 
         self.on_log('同步数据中。')
 
@@ -77,6 +79,8 @@ class TradeGateway(object):
         self.on_log('数据同步完成。')
 
     def submit_order(self, order):
+        account = self._env.get_account(order.order_book_id)
+        self._que.push(RqEvent(EVENT.ORDER_PENDING_NEW, account=account, order=order))
         self.td_api.sendOrder(order)
         self._cache.cache_order(order)
 
@@ -88,6 +92,7 @@ class TradeGateway(object):
     def get_portfolio(self):
         FuturePosition = self._env.get_position_model(DEFAULT_ACCOUNT_TYPE.FUTURE.name)
         FutureAccount = self._env.get_account_model(DEFAULT_ACCOUNT_TYPE.FUTURE.name)
+        FutureAccount.AGGRESSIVE_UPDATE_LAST_PRICE = True
         self._cache.set_models(FutureAccount, FuturePosition)
         future_account, static_value = self._cache.account
         start_date = self._env.config.base.start_date
@@ -120,12 +125,19 @@ class TradeGateway(object):
             return
 
         order = self._cache.get_cached_order(order_dict)
+        if order is None:
+            UserLogHelper.log(
+                'Order {}, which was not submitted by current strategy, will be ignored. '
+                'As a result, account and position data in strategy may be inconsistent with CTP.'.format(
+                    str(order_dict.order_id)
+                ), 'warn'
+            )
+            return
         order._message = order_dict.message
 
-        account = Environment.get_instance().get_account(order.order_book_id)
+        account = self._env.get_account(order.order_book_id)
 
         if order.status == ORDER_STATUS.PENDING_NEW:
-            self._que.push(RqEvent(EVENT.ORDER_PENDING_NEW, account=account, order=order))
             order.active()
             self._que.push(RqEvent(EVENT.ORDER_CREATION_PASS, account=account, order=order))
             if order_dict.status == ORDER_STATUS.ACTIVE:
@@ -167,6 +179,15 @@ class TradeGateway(object):
                 return
 
             order = self._cache.get_cached_order(trade_dict)
+            if order is None:
+                UserLogHelper.log(
+                    'Trade {}, whose order {} was not submitted by current strategy, will be ignored. '
+                    'As a result, account and position data in strategy may be inconsistent with CTP.'.format(
+                        str(trade_dict.trade_id), str(trade_dict.order_id)
+                    ), 'warn'
+                )
+                return
+
             commission = cal_commission(trade_dict, order.position_effect)
             trade = Trade.__from_create__(
                 trade_dict.order_id, trade_dict.price, trade_dict.quantity,
@@ -187,7 +208,7 @@ class TradeGateway(object):
                 self._cache.cache_ins(ins_cache)
                 break
         else:
-            raise RuntimeError('请求合约数据超时')
+            raise RuntimeError('Data request timeout.')
 
     def _qry_account(self):
         for i in range(self._retry_times):
@@ -200,7 +221,7 @@ class TradeGateway(object):
                 self._cache.cache_account(account_dict)
                 break
         else:
-            raise RuntimeError('请求账户数据超时')
+            raise RuntimeError('Data request timeout.')
 
     def _qry_position(self):
         for i in range(self._retry_times):
@@ -222,7 +243,7 @@ class TradeGateway(object):
                 del self._query_returns[req_id]
                 self.on_debug('订单数据返回')
                 for order_dict in order_cache.values():
-                    order = self._cache.get_cached_order(order_dict)
+                    order = self._cache.get_cached_order(order_dict, ignore=False)
                     if order_dict.status == ORDER_STATUS.ACTIVE:
                         self._cache.cache_open_order(order)
                 self._cache.cache_qry_order(order_cache)
@@ -264,7 +285,7 @@ class TradeGateway(object):
 
     @staticmethod
     def on_err(error, func_name):
-        system_log.error('CTP 错误，错误代码：%s，错误信息：%s' % (str(error.ErrorID), bytes2str(error.ErrorMsg)))
+        UserLogHelper.log('CTP 错误，错误代码：%s，错误信息：%s' % (str(error.ErrorID), error.ErrorMsg.decode('GBK')), 'error')
 
 
 class DataCache(object):
@@ -325,13 +346,17 @@ class DataCache(object):
             self.trades[trade_dict.order_book_id] = []
         self.trades[trade_dict.order_book_id].append(trade_dict)
 
-    def get_cached_order(self, obj):
+    def get_cached_order(self, obj, ignore=True):
         try:
-            order = self.orders[obj.order_id]
+            order = copy(self.orders[obj.order_id])
         except KeyError:
-            order = Order.__from_create__(obj.order_book_id, obj.quantity, obj.side, obj.style, obj.position_effect)
-            order._calendar_dt = obj.calendar_dt
-            self.cache_order(order)
+            if ignore:
+                return
+            else:
+                order = Order.__from_create__(obj.order_book_id, obj.quantity, obj.side, obj.style, obj.position_effect)
+                order._calendar_dt = obj.calendar_dt
+                self.cache_order(order)
+
         return order
 
     def cache_order(self, order):

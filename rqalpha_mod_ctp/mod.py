@@ -15,11 +15,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import date
+
 from rqalpha.interface import AbstractMod
 from rqalpha.const import RUN_TYPE, DEFAULT_ACCOUNT_TYPE
 from rqalpha.utils.logger import system_log
 from rqalpha.events import EVENT
 
+from .utils import UserLogHelper
 from .ctp_broker import CtpBroker
 from .ctp_data_source import CtpDataSource
 from .ctp_price_board import CtpPriceBoard
@@ -50,6 +53,8 @@ class CtpMod(AbstractMod):
         if DEFAULT_ACCOUNT_TYPE.FUTURE not in self._env.config.base.accounts:
             return
 
+        env.config.base.start_date = date.today()
+
         self._event_source = QueuedEventSource(env, system_log)
         self._sub_event_sources.append(TimerEventSource(self._event_source, system_log, 1))
         env.set_event_source(self._event_source)
@@ -62,6 +67,7 @@ class CtpMod(AbstractMod):
         self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
 
         self._env.event_bus.add_listener(EVENT.POST_SYSTEM_INIT, self._run_sub_event_sources)
+        UserLogHelper.register()
 
     def tear_down(self, code, exception=None):
         if self._md_gateway is not None:

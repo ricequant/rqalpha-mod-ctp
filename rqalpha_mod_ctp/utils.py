@@ -20,6 +20,7 @@ import platform
 
 from rqalpha.environment import Environment
 from rqalpha.const import POSITION_EFFECT, COMMISSION_TYPE
+from rqalpha.utils.logger import user_system_log
 
 
 PY_VERSION = platform.python_version()[:3]
@@ -106,3 +107,31 @@ def is_future(order_book_id):
         return False
     return re.match('^[a-zA-Z]+[0-9]+$', order_book_id) is not None
 
+
+class UserLogHelper(object):
+    _system_inited = False
+    _log_cache = []
+
+    LEVEL_MAPPING = {
+        'debug': user_system_log.debug,
+        'info': user_system_log.info,
+        'warn': user_system_log.warn,
+        'error': user_system_log.error,
+    }
+
+    @classmethod
+    def register(cls):
+        Environment.get_instance().event_bus.add_listener(EVENT.POST_SYSTEM_INIT, cls.on_system_init)
+
+    @classmethod
+    def log(cls, msg, level):
+        if cls._system_inited:
+            cls.LEVEL_MAPPING[level](msg)
+        else:
+            cls._log_cache.append((msg, level))
+
+    @classmethod
+    def on_system_init(cls, *args, **kwargs):
+        for msg, level in cls._log_cache:
+            cls.LEVEL_MAPPING[level](msg)
+        cls._system_inited = True

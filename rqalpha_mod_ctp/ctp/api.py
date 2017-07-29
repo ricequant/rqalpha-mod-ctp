@@ -18,11 +18,10 @@ import sys
 from functools import wraps
 
 from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT
-from rqalpha.utils.logger import user_system_log
 
 from .pyctp import MdApi, TraderApi, ApiStruct
 from .data_dict import TickDict, PositionDict, AccountDict, InstrumentDict, OrderDict, TradeDict, CommissionDict
-from ..utils import make_order_book_id, str2bytes, bytes2str
+from ..utils import make_order_book_id, str2bytes, UserLogHelper
 
 ORDER_TYPE_MAPPING = {
     ORDER_TYPE.MARKET: ApiStruct.OPT_AnyPrice,
@@ -202,7 +201,7 @@ class CtpTdApi(TraderApi):
     def OnFrontDisconnected(self, nReason):
         self.connected = False
         self.logged_in = False
-        self.gateway.on_debug('服务器断开，将自动重连。')
+        UserLogHelper.log('CTP trade server disconnected, trying to reconnect.', 'warn')
 
     def OnHeartBeatWarning(self, nTimeLapse):
         """心跳报警"""
@@ -254,7 +253,9 @@ class CtpTdApi(TraderApi):
     @query_in_sync
     def OnRspQryInvestorPosition(self, pInvestorPosition, pRspInfo, nRequestID, bIsLast):
         """持仓查询回报"""
-        if pInvestorPosition.InstrumentID:
+        if pInvestorPosition is None:
+            pass
+        elif pInvestorPosition.InstrumentID:
             order_book_id = make_order_book_id(pInvestorPosition.InstrumentID)
             if order_book_id not in self.pos_cache:
                 ins_dict = self.gateway.get_ins_dict(order_book_id)
@@ -408,12 +409,12 @@ class CtpTdApi(TraderApi):
     def sendOrder(self, order):
         ins_dict = self.gateway.get_ins_dict(order.order_book_id)
         if ins_dict is None:
-            user_system_log.error('Send order failed, such instrument dose not exist.')
+            UserLogHelper.log('Send order failed, the instrument does not exists.', 'warn')
             return
         try:
             price_type = ORDER_TYPE_MAPPING[order.type]
         except KeyError:
-            user_system_log.error('Send order failed, such order type dose not exist.')
+            UserLogHelper.log('Send order failed, the order type was not support.', 'warn')
             return
 
         if order.type == ORDER_TYPE.LIMIT:
@@ -449,7 +450,7 @@ class CtpTdApi(TraderApi):
     def cancelOrder(self, order):
         ins_dict = self.gateway.get_ins_dict(order.order_book_id)
         if ins_dict is None:
-            user_system_log.error('Cancel order failed, such instrument dose not exist.')
+            UserLogHelper.log('Cancel order failed, the instrument does not exists', 'warn')
             return None
 
         req = ApiStruct.InputOrderAction(

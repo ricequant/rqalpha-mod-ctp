@@ -19,6 +19,7 @@ from dateutil.parser import parse
 
 from rqalpha.const import SIDE, POSITION_EFFECT, ORDER_STATUS, COMMISSION_TYPE, MARGIN_TYPE
 from rqalpha.model.order import LimitOrder
+from rqalpha.environment import Environment
 
 from ..utils import make_order_book_id, make_underlying_symbol, is_future, bytes2str
 from .pyctp import ApiStruct
@@ -373,9 +374,15 @@ class OrderDict(DataDict):
                 pass
 
         self.style = LimitOrder(self.price)
-        self.calendar_dt = parse('{} {}'.format(bytes2str(data.InsertDate), bytes2str(data.InsertTime)))
+        try:
+            self.calendar_dt = parse('{} {}'.format(bytes2str(data.InsertDate), bytes2str(data.InsertTime)))
+        except AttributeError:
+            self.calendar_dt = Environment.get_instance().calendar_dt
 
-        self.message = bytes2str(data.StatusMsg)
+        try:
+            self.message = bytes2str(data.StatusMsg)
+        except AttributeError:
+            pass
 
         self.is_valid = True
 
