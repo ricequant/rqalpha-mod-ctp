@@ -17,39 +17,51 @@
 
 from rqalpha.interface import AbstractMod
 from rqalpha.const import RUN_TYPE, DEFAULT_ACCOUNT_TYPE
-from .ctp_event_source import CtpEventSource
+from rqalpha.utils.logger import system_log
+from rqalpha.events import EVENT
+
 from .ctp_broker import CtpBroker
 from .ctp_data_source import CtpDataSource
 from .ctp_price_board import CtpPriceBoard
-
 from .ctp.md_gateway import MdGateway
 from .ctp.trade_gateway import TradeGateway
+from .queued_event_source import QueuedEventSource
+from .sub_event_source import TimerEventSource
 
 
 class CtpMod(AbstractMod):
     def __init__(self):
+        self._env = None
         self._mod_config = None
         self._md_gateway = None
         self._trade_gateway = None
-        self._env = None
+        self._event_source = None
+
+        self._sub_event_sources = []
 
     def start_up(self, env, mod_config):
         self._env = env
-
-        if self._env.config.base.run_type != RUN_TYPE.LIVE_TRADING or DEFAULT_ACCOUNT_TYPE.FUTURE in self._env.config.base.accounts:
-            return
-
         self._mod_config = mod_config
 
-        if mod_config.user_id and mod_config.password and mod_config.td_addr:
-            self._init_trade_gateway()
-            self._env.set_broker(CtpBroker(env, self._trade_gateway))
+        if not (mod_config.user_id and mod_config.password and mod_config.broker_id and mod_config.td_addr and mod_config.md_addr):
+            return
+        if env.config.base.run_type != RUN_TYPE.LIVE_TRADING and env.config.baes.frequency != 'tick':
+            return
+        if DEFAULT_ACCOUNT_TYPE.FUTURE not in self._env.config.base.accounts:
+            return
 
-        if mod_config.user_id and mod_config.password and mod_config.md_addr:
-            self._init_md_gateway()
-            self._env.set_event_source(CtpEventSource(env, mod_config, self._md_gateway))
-            self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
-            self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
+        self._event_source = QueuedEventSource(env, system_log)
+        self._sub_event_sources.append(TimerEventSource(self._event_source, system_log, 1))
+        env.set_event_source(self._event_source)
+
+        self._init_trade_gateway()
+        self._env.set_broker(CtpBroker(env, self._trade_gateway))
+
+        self._init_md_gateway()
+        self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
+        self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
+
+        self._env.event_bus.add_listener(EVENT.POST_SYSTEM_INIT, self._run_sub_event_sources)
 
     def tear_down(self, code, exception=None):
         if self._md_gateway is not None:
@@ -63,7 +75,7 @@ class CtpMod(AbstractMod):
         broker_id = self._mod_config.broker_id
         trade_frontend_uri = self._mod_config.td_addr
 
-        self._trade_gateway = TradeGateway(self._env)
+        self._trade_gateway = TradeGateway(self._env, self._event_source)
         self._trade_gateway.connect(user_id, password, broker_id, trade_frontend_uri)
 
     def _init_md_gateway(self):
@@ -72,6 +84,10 @@ class CtpMod(AbstractMod):
         broker_id = self._mod_config.broker_id
         md_frontend_uri = self._mod_config.md_addr
 
-        self._md_gateway = MdGateway(self._env)
+        self._md_gateway = MdGateway(self._env, self._event_source)
         self._md_gateway.connect(user_id, password, broker_id, md_frontend_uri)
+
+    def _run_sub_event_sources(self, *args, **kwargs):
+        for sub_event_source in self._sub_event_sources:
+            sub_event_source.start()
 

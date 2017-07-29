@@ -34,8 +34,9 @@ from ..utils import cal_commission, margin_of, bytes2str
 
 
 class TradeGateway(object):
-    def __init__(self, env, retry_times=5, retry_interval=1):
+    def __init__(self, env, que, retry_times=5, retry_interval=1):
         self._env = env
+        self._que = que
 
         self._retry_times = retry_times
         self._retry_interval = retry_interval
@@ -81,7 +82,7 @@ class TradeGateway(object):
 
     def cancel_order(self, order):
         account = Environment.get_instance().get_account(order.order_book_id)
-        self._env.event_bus.publish_event(RqEvent(EVENT.ORDER_PENDING_CANCEL, account=account, order=order))
+        self._que.push(RqEvent(EVENT.ORDER_PENDING_CANCEL, account=account, order=order))
         self.td_api.cancelOrder(order)
 
     def get_portfolio(self):
@@ -124,14 +125,14 @@ class TradeGateway(object):
         account = Environment.get_instance().get_account(order.order_book_id)
 
         if order.status == ORDER_STATUS.PENDING_NEW:
-            self._env.event_bus.publish_event(RqEvent(EVENT.ORDER_PENDING_NEW, account=account, order=order))
+            self._que.push(RqEvent(EVENT.ORDER_PENDING_NEW, account=account, order=order))
             order.active()
-            self._env.event_bus.publish_event(RqEvent(EVENT.ORDER_CREATION_PASS, account=account, order=order))
+            self._que.push(RqEvent(EVENT.ORDER_CREATION_PASS, account=account, order=order))
             if order_dict.status == ORDER_STATUS.ACTIVE:
                 self._cache.cache_open_order(order)
             elif order_dict.status in [ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED]:
                 order.mark_rejected(order_dict.message)
-                self._env.event_bus.publish_event(RqEvent(EVENT.ORDER_UNSOLICITED_UPDATE, account=account, order=order))
+                self._que.push(RqEvent(EVENT.ORDER_UNSOLICITED_UPDATE, account=account, order=order))
                 self._cache.remove_open_order(order)
 
             elif order_dict.status == ORDER_STATUS.FILLED:
@@ -143,13 +144,13 @@ class TradeGateway(object):
                 order._status = order_dict.status
             if order_dict.status == ORDER_STATUS.CANCELLED:
                 order.mark_cancelled("%d order has been cancelled." % order.order_id)
-                self._env.event_bus.publish_event(RqEvent(EVENT.ORDER_CANCELLATION_PASS, account=account, order=order))
+                self._que.push(RqEvent(EVENT.ORDER_CANCELLATION_PASS, account=account, order=order))
                 self._cache.remove_open_order(order)
 
         elif order.status == ORDER_STATUS.PENDING_CANCEL:
             if order_dict.status == ORDER_STATUS.CANCELLED:
                 order.mark_cancelled("%d order has been cancelled." % order.order_id)
-                self._env.event_bus.publish_event(RqEvent(EVENT.ORDER_CANCELLATION_PASS, account=account, order=order))
+                self._que.push(RqEvent(EVENT.ORDER_CANCELLATION_PASS, account=account, order=order))
                 self._cache.remove_open_order(order)
             if order_dict.status == ORDER_STATUS.FILLED:
                 order._status = order_dict.status
@@ -173,7 +174,7 @@ class TradeGateway(object):
                 commission=commission, frozen_price=trade_dict.price)
 
             order.fill(trade)
-            self._env.event_bus.publish_event(RqEvent(EVENT.TRADE, account=account, trade=trade))
+            self._que.push(RqEvent(EVENT.TRADE, account=account, trade=trade))
 
     def _qry_instrument(self):
         for i in range(self._retry_times):

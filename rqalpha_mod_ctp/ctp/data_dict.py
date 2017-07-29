@@ -51,12 +51,15 @@ class TickDict(DataDict):
     def __init__(self, data=None):
         super(TickDict, self).__init__()
         self.order_book_id = None
+
         self.date = None
         self.time = None
+
         self.open = None
         self.last = None
         self.low = None
         self.high = None
+
         self.prev_close = None
         self.volume = None
         self.total_turnover = None

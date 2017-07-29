@@ -26,7 +26,6 @@ __config__ = {
     "broker_id": None,
     "td_addr": 'tcp://180.168.146.187:10000',
     "md_addr": 'tcp://180.168.212.228:41213',
-    "all_day": False,
 }
 
 
