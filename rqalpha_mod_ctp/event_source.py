@@ -14,14 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from time import sleep
 from queue import Queue, Empty
+from threading import Thread
+from six import iteritems
 
+from rqalpha.environment import Environment
 from rqalpha.events import EVENT, Event
 from rqalpha.interface import AbstractEventSource
 from rqalpha.utils import rq_json as json_utils
-from rqalpha.utils import get_trading_period, is_night_trading, is_trading
-
-from .sub_event_source import EVENT_DO_SEND_FEED
+from rqalpha.utils import is_night_trading
+from rqalpha.utils.logger import system_log
 
 
 class QueuedEventSource(AbstractEventSource):
@@ -53,49 +56,32 @@ class QueuedEventSource(AbstractEventSource):
     def push(self, event):
         self._queue.put(event)
 
-    MARKET_DATA_EVENTS = {EVENT.TICK, EVENT.BAR, EVENT.BEFORE_TRADING, EVENT.AFTER_TRADING, EVENT.SETTLEMENT}
+    MARKET_DATA_EVENTS = {EVENT.TICK, EVENT.BEFORE_TRADING, EVENT.AFTER_TRADING, EVENT.SETTLEMENT}
 
     @staticmethod
     def _filter_events(events):
         if len(events) == 1:
             return events
 
-        last_bar_pos = None
-        last_tick_pos = None
-        last_persist_event_pos = None
-        last_send_feed_event_pos = None
-        for i, e in enumerate(events):
-            if e.event_type == EVENT.BAR:
-                last_bar_pos = i
-            elif e.event_type == EVENT.TICK:
-                last_tick_pos = i
-            if e.event_type == EVENT.DO_PERSIST:
-                last_persist_event_pos = i
-            if e.event_type == EVENT_DO_SEND_FEED:
-                last_send_feed_event_pos = i
+        seen = set()
         results = []
-        for i, e in enumerate(events):
-            if e.event_type == EVENT.BAR:
-                if i == last_bar_pos:
+        for e in events[::-1]:
+            if e.event_type == EVENT.TICK:
+                if EVENT.TICK not in seen:
                     results.append(e)
-            elif e.event_type == EVENT.TICK:
-                if i == last_tick_pos:
-                    results.append(e)
+                    seen.add(EVENT.TICK)
             elif e.event_type == EVENT.DO_PERSIST:
-                if i == last_persist_event_pos:
+                if EVENT.DO_PERSIST not in seen:
                     results.append(e)
-            elif e.event_type == EVENT_DO_SEND_FEED:
-                if i == last_send_feed_event_pos:
-                    results.append(e)
+                    seen.add(EVENT.DO_PERSIST)
             else:
                 results.append(e)
-        return results
+        return results[::-1]
 
     def events(self, start_date, end_date, frequency):
         if frequency != 'tick':
             raise NotImplementedError()
 
-        trading_periods = get_trading_period(self._env.get_universe(), self._env.config.base.accounts)
         self._need_night_trading = is_night_trading(self._env.get_universe())
 
         events = []
@@ -105,7 +91,7 @@ class QueuedEventSource(AbstractEventSource):
 
         while True:
             if self._universe_changed:
-                trading_periods = get_trading_period(self._env.get_universe(), self._env.config.base.accounts)
+                self._universe_changed = False
                 self._need_night_trading = is_night_trading(self._env.get_universe())
 
             while True:
@@ -120,19 +106,14 @@ class QueuedEventSource(AbstractEventSource):
                 if not self._need_night_trading and e.event_type in self.MARKET_DATA_EVENTS and \
                         (e.calendar_dt.hour > 19 or e.calendar_dt.hour < 4):
                     continue
+                system_log.debug('got event {}', e)
                 if e.event_type == EVENT.TICK:
-                    # tick 是最频繁的
-                    if not is_trading(e.trading_dt, trading_periods):
-                        continue
                     if self._last_before_trading != e.trading_dt.date() or force_run_before_trading:
                         force_run_before_trading = False
                         self._last_before_trading = e.trading_dt.date()
-                        self._logger.debug('EVNET: {}'.format(str(Event(EVENT.BEFORE_TRADING, calendar_dt=e.calendar_dt, trading_dt=e.trading_dt))))
                         yield Event(EVENT.BEFORE_TRADING, calendar_dt=e.calendar_dt, trading_dt=e.trading_dt)
                     else:
-                        self._logger.debug('EVNET: {}'.format(str(e)))
                         yield e
-
                 elif e.event_type == EVENT.BEFORE_TRADING:
                     if self._last_before_trading != e.trading_dt.date():
                         force_run_before_trading = False
@@ -145,3 +126,74 @@ class QueuedEventSource(AbstractEventSource):
 
             events.clear()
             events.append(self._queue.get())
+
+
+class SubEvnetSource(object):
+    def __init__(self, que, logger):
+        self._que = que
+        self._thread = Thread(target=self._run)
+
+        self._env = Environment.get_instance()
+        self._logger = logger
+
+        self.running = True
+
+    def _run(self):
+        raise NotImplementedError()
+
+    def _yield_event(self, event):
+        self._que.push(event)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self.running = False
+        if self._thread.is_alive():
+            self._thread.join()
+
+
+class TickEventSource(SubEvnetSource):
+    def __init__(self, que, logger):
+        super(TickEventSource, self).__init__(que, logger)
+
+    @staticmethod
+    def _filter_ticks(events):
+        return {order_book_id: msgs[-1] for order_book_id, msgs in iteritems(events)}
+
+    def _run(self):
+        pass
+
+    def put_tick(self, tick):
+        calendar_dt = tick.calendar_dt
+        trading_dt = self._env.data_proxy.get_trading_dt(calendar_dt)
+
+        self._yield_event(Event(EVENT.TICK, calendar_dt=calendar_dt, trading_dt=trading_dt, tick=tick))
+
+
+class TimerEventSource(SubEvnetSource):
+    def __init__(self, que, logger, interval):
+        super(TimerEventSource, self).__init__(que, logger)
+        self._interval = interval
+
+        self._last_strategy_holding_status = False
+
+    def _run(self):
+        while self.running:
+            sleep(self._interval)
+            calendar_dt = self._env.calendar_dt
+            try:
+                trading_dt = self._env.data_proxy.get_trading_dt(calendar_dt)
+            except RuntimeError:
+                continue
+
+            current_strategy_holding_status = self._env.config.extra.is_hold
+
+            if self._last_strategy_holding_status != current_strategy_holding_status:
+                if not self._last_strategy_holding_status and current_strategy_holding_status:
+                    self._yield_event(Event(EVENT.STRATEGY_HOLD_SET, calendar_dt=calendar_dt, trading_dt=trading_dt))
+                elif self._last_strategy_holding_status and not current_strategy_holding_status:
+                    self._yield_event(Event(EVENT.STRATEGY_HOLD_CANCELLED, calendar_dt=calendar_dt, trading_dt=trading_dt))
+                self._last_strategy_holding_status = current_strategy_holding_status
+
+            self._yield_event(Event(EVENT.DO_PERSIST, calendar_dt=calendar_dt, trading_dt=trading_dt))
