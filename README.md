@@ -4,6 +4,11 @@ RQAlpha 对接 CTP 的扩展 Mod。通过启用该 Mod 来实现期货策略的�
 
 该 Mod 底层引用了 [PyCTP](https://github.com/lovelylain/pyctp), 一些函数的封装和写法参考了 [VN.PY](https://github.com/vnpy/vnpy)。
 
+
+## 量化社区
+
+[Ricequant](http://www.ricequant.com) 旨在为量化爱好者提供可靠、易用的工具。与此同时我们也搭建了一个量化社区供大家探讨与交流回测框架、策略。欢迎大家前来分享自己对于量化交易的理解。
+
 ## 环境要求
 
 该 Mod 支持 python 2.7, 3.4, 3.5，暂时仅支持 Linux，后续会加入 windows 支持。
