@@ -46,23 +46,30 @@ class CtpMod(AbstractMod):
         self._env = env
         self._mod_config = mod_config
 
-        if not (mod_config.user_id and mod_config.password and mod_config.broker_id and mod_config.td_addr and mod_config.md_addr):
+        if not (mod_config.user_id and mod_config.password and mod_config.broker_id and mod_config.md_frontend_url and mod_config.trade_frontend_url):
+            system_log.warn('Parameters are not complete, rqalpha-mod-ctp won\'t start.')
             return
         if env.config.base.run_type != RUN_TYPE.LIVE_TRADING and env.config.baes.frequency != 'tick':
+            system_log.warn('Run type or frequency not available, rqalpha-mod-ctp won\'t start.')
             return
         if DEFAULT_ACCOUNT_TYPE.FUTURE not in self._env.config.base.accounts:
+            system_log.warn('Only support future, which is not in accounts, rqalpha-mod-ctp won\'t start.')
             return
+
+        system_log.info('Rqalpha-mod-ctp start up.')
 
         env.config.base.start_date = date.today()
 
-        self._event_source = QueuedEventSource(env, system_log)
+        self._md_gateway = MdGateway(env, mod_config)
+        event_source = QueuedEventSource(env, system_log)
+        self._md_gateway.on_subscribed_tick = event_source.put_tick
+
         self._sub_event_sources.append(TimerEventSource(self._event_source, system_log, 1))
         env.set_event_source(self._event_source)
 
         self._init_trade_gateway()
         self._env.set_broker(CtpBroker(env, self._trade_gateway))
 
-        self._init_md_gateway()
         self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
         self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
 
@@ -83,15 +90,6 @@ class CtpMod(AbstractMod):
 
         self._trade_gateway = TradeGateway(self._env, self._event_source)
         self._trade_gateway.connect(user_id, password, broker_id, trade_frontend_uri)
-
-    def _init_md_gateway(self):
-        user_id = self._mod_config.user_id
-        password = self._mod_config.password
-        broker_id = self._mod_config.broker_id
-        md_frontend_uri = self._mod_config.md_addr
-
-        self._md_gateway = MdGateway(self._env, self._event_source)
-        self._md_gateway.connect(user_id, password, broker_id, md_frontend_uri)
 
     def _run_sub_event_sources(self, *args, **kwargs):
         for sub_event_source in self._sub_event_sources:

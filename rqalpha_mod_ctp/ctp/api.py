@@ -22,7 +22,7 @@ from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT
 
 from .pyctp import MdApi, TraderApi, ApiStruct
 from .data_dict import TickDict, PositionDict, AccountDict, InstrumentDict, OrderDict, TradeDict, CommissionDict
-from ..utils import make_order_book_id, str2bytes, UserLogHelper
+from ..utils import make_order_book_id, str2bytes, bytes2str, UserLogHelper
 
 ORDER_TYPE_MAPPING = {
     ORDER_TYPE.MARKET: ApiStruct.OPT_AnyPrice,
@@ -149,6 +149,8 @@ class CtpMdApi(MdApi, ApiMixIn):
         super(CtpMdApi, self).__init__()
         ApiMixIn.__init__(self, 'CtpMdApi', user_id, password, broker_id, md_frontend_url, logger)
 
+        self.on_tick = None
+
     def do_init(self):
         self.Create()
         self.RegisterFront(str2bytes(self.frontend_url))
@@ -174,27 +176,24 @@ class CtpMdApi(MdApi, ApiMixIn):
 
     def OnRspError(self, pRspInfo, nRequestID, bIsLast):
         """错误回报"""
-        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
+        self.logger.warn('{}: OnRspError, ErrID: {}, ErrMsg: {}'.format(
+            self.name, pRspInfo.ErrorID, bytes2str(pRspInfo.ErrorMsg)
+        ))
 
     def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
         """登陆回报"""
+        self.logger.debug('{}: OnRspUserLogin: {}, pRspInfo: {}'.format(self.name, pRspUserLogin, pRspInfo))
         if pRspInfo.ErrorID == 0:
-            self.logged_in = True
+            self._status = Status.PREPARING
         else:
-            self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
-
-    def OnRspUserLogout(self, pUserLogout, pRspInfo, nRequestID, bIsLast):
-        """登出回报"""
-        if pRspInfo.ErrorID == 0:
-            self.logged_in = False
-        else:
-            self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
+            self._status = Status.ERROR
+            self._status_msg = bytes2str(pRspInfo.ErrorMsg)
 
     def OnRtnDepthMarketData(self, pDepthMarketData):
         """行情推送"""
         tick_dict = TickDict(pDepthMarketData)
         if tick_dict.is_valid:
-            self.gateway.on_tick(tick_dict)
+            self.on_tick(tick_dict)
 
 
 class CtpTdApi(TraderApi):
