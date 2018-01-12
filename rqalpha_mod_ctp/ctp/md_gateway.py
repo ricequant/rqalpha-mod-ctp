@@ -21,21 +21,22 @@ except ImportError:
 
 from rqalpha.utils.logger import system_log
 from rqalpha.environment import Environment
-from rqalpha.events import EVENT, Event
+from rqalpha.events import EVENT
 from rqalpha.model.tick import Tick
 
 from .api import CtpMdApi
 
 
 class MdGateway(object):
-    def __init__(self, env, que, retry_times=5, retry_interval=1):
+    def __init__(self, env, retry_times=5, retry_interval=1):
         self._env = env
-        self._que = que
 
         self._md_api = None
 
         self._retry_times = retry_times
         self._retry_interval = retry_interval
+
+        self.on_subscribed_tick = None
 
         self._snapshot_cache = {}
         self.subscribed = []
@@ -68,9 +69,7 @@ class MdGateway(object):
     def on_tick(self, tick_dict):
         if tick_dict.order_book_id in self.subscribed:
             tick = Tick(tick_dict.order_book_id, tick_dict)
-            calendar_dt = tick.datetime
-            trading_dt = self._env.data_proxy.get_trading_dt(calendar_dt)
-            self._que.push(Event(EVENT.TICK, calendar_dt=calendar_dt, trading_dt=trading_dt, tick=tick))
+            self.on_subscribed_tick(tick)
         self._snapshot_cache[tick_dict.order_book_id] = tick_dict
 
     def on_universe_changed(self, event):
@@ -87,3 +86,5 @@ class MdGateway(object):
     @staticmethod
     def on_err(error, func_name):
         system_log.error('CTP 错误，错误代码：%s，错误信息：%s' % (str(error.ErrorID), error.ErrorMsg.decode('GBK')))
+
+

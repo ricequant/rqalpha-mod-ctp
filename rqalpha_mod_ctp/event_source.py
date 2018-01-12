@@ -154,8 +154,9 @@ class SubEvnetSource(object):
 
 
 class TickEventSource(SubEvnetSource):
-    def __init__(self, que, logger):
+    def __init__(self, que, logger, md_gateway):
         super(TickEventSource, self).__init__(que, logger)
+        md_gateway.on_subscribed_tick = self.put_tick
 
     @staticmethod
     def _filter_ticks(events):
@@ -165,7 +166,7 @@ class TickEventSource(SubEvnetSource):
         pass
 
     def put_tick(self, tick):
-        calendar_dt = tick.calendar_dt
+        calendar_dt = tick.datetime
         trading_dt = self._env.data_proxy.get_trading_dt(calendar_dt)
 
         self._yield_event(Event(EVENT.TICK, calendar_dt=calendar_dt, trading_dt=trading_dt, tick=tick))

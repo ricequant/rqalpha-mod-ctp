@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import sys
+from time import sleep
 from functools import wraps
 
 from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT
@@ -50,37 +51,126 @@ def query_in_sync(func):
     return wrapper
 
 
-class CtpMdApi(MdApi):
-    def __init__(self, gateway, user_id, password, broker_id, address, api_name='ctp_md'):
-        super(CtpMdApi, self).__init__()
+class Status(object):
+    ERROR = -1
+    DISCONNECTED = 0
+    PREPARING = 1
+    RUNNING = 2
 
-        self.gateway = gateway
-        self._req_id = 0
 
-        self.connected = False
-        self.logged_in = False
-
+class ApiMixIn(object):
+    def __init__(self, name, user_id, password, broker_id, frontend_url, logger):
+        self.name = name
         self.user_id = user_id
         self.password = password
         self.broker_id = broker_id
-        self.address = address
+        self.frontend_url = frontend_url
+        self.logger = logger
 
-        self.api_name = api_name
+        self._status = Status.DISCONNECTED
+        self._starting_up = False
+        self._status_msg = None
+        self._req_id = 0
+
+    def do_init(self):
+        pass
+
+    def prepare(self):
+        pass
+
+    def close(self):
+        pass
+
+    def start_up(self, retry_time=5):
+        if self._starting_up:
+            return
+
+        self._starting_up = True
+        if self._status == Status.ERROR:
+            self._status = Status.DISCONNECTED
+
+        if self.user_id and self.password and self.broker_id and self.frontend_url:
+            self.logger.info('{}: start up'.format(self.name))
+
+        for i in range(retry_time + 1):
+            if self._status >= Status.PREPARING:
+                break
+            self.do_init()
+            for j in range(100 * 2 ** i):
+                sleep(0.01)
+                if self._status >= Status.PREPARING:
+                    break
+                elif self._status == Status.ERROR:
+                    self._starting_up = False
+                    raise RuntimeError(self._status_msg)
+            else:
+                continue
+            break
+        else:
+            self._status = Status.ERROR
+            self._starting_up = False
+            raise RuntimeError('{}: init timeout'.format(self.name))
+        self.logger.debug('{}: init successfully'.format(self.name))
+
+        for i in range(retry_time + 1):
+            if self._status >= Status.RUNNING:
+                break
+            self.prepare()
+            for j in range(100 * 2 ** i):
+                sleep(0.01)
+                if self._status >= Status.RUNNING:
+                    break
+                elif self._status == Status.ERROR:
+                    self._starting_up = False
+                    raise RuntimeError(self._status_msg)
+            else:
+                continue
+            break
+        else:
+            self._status = Status.ERROR
+            self._starting_up = False
+            raise RuntimeError('{}: prepare timeout'.format(self.name))
+        self.logger.info('{}: started up'.format(self.name))
+        self._starting_up = False
+
+    def tear_down(self):
+        self.close()
+        self._status = Status.DISCONNECTED
+        self.logger.info('{}: torn up'.format(self.name))
+
+    @property
+    def req_id(self):
+        self._req_id += 1
+        return self._req_id
+
+
+class CtpMdApi(MdApi, ApiMixIn):
+    def __init__(self, user_id, password, broker_id, md_frontend_url, logger):
+        super(CtpMdApi, self).__init__()
+        ApiMixIn.__init__(self, 'CtpMdApi', user_id, password, broker_id, md_frontend_url, logger)
+
+    def do_init(self):
+        self.Create()
+        self.RegisterFront(str2bytes(self.frontend_url))
+        self.Init()
+
+    def prepare(self):
+        self._status = Status.RUNNING
+
+    def close(self):
+        self.Release()
 
     def OnFrontConnected(self):
         """服务器连接"""
-        self.connected = True
-        self.login()
+        self.ReqUserLogin(ApiStruct.ReqUserLogin(
+            BrokerID=str2bytes(self.broker_id),
+            UserID=str2bytes(self.user_id),
+            Password=str2bytes(self.password)
+        ), self.req_id)
 
     def OnFrontDisconnected(self, nReason):
         """服务器断开"""
-        self.connected = False
-        self.logged_in = False
-        self.gateway.on_debug('服务器断开，将自动重连。')
-
-    def OnHeartBeatWarning(self, nTimeLapse):
-        """心跳报警"""
-        pass
+        self._status = Status.DISCONNECTED
 
     def OnRspError(self, pRspInfo, nRequestID, bIsLast):
         """错误回报"""
@@ -100,66 +190,11 @@ class CtpMdApi(MdApi):
         else:
             self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
 
-    def OnRspSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
-        """订阅合约回报"""
-        pass
-
-    def OnRspUnSubForQuoteRsp(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
-        """退订合约回报"""
-        pass
-
     def OnRtnDepthMarketData(self, pDepthMarketData):
         """行情推送"""
         tick_dict = TickDict(pDepthMarketData)
         if tick_dict.is_valid:
             self.gateway.on_tick(tick_dict)
-
-    def OnRspSubForQuoteRsp(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
-        """订阅期权询价"""
-        pass
-
-    def OnRspUnSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
-        """退订期权询价"""
-        pass
-
-    def OnRtnForQuoteRsp(self, pForQuoteRsp):
-        """期权询价推送"""
-        pass
-
-    @property
-    def req_id(self):
-        self._req_id += 1
-        return self._req_id
-
-    def connect(self):
-        """初始化连接"""
-        if not self.connected:
-            self.Create()
-            self.RegisterFront(str2bytes(self.address))
-            self.Init()
-        else:
-            self.login()
-
-    def subscribe(self, ins_id_list):
-        """订阅合约"""
-        if len(ins_id_list) > 0:
-            ins_id_list = [str2bytes(i) for i in ins_id_list]
-            self.SubscribeMarketData(ins_id_list)
-
-    def login(self):
-        """登录"""
-        if not self.logged_in:
-            req = ApiStruct.ReqUserLogin(BrokerID=str2bytes(self.broker_id),
-                                         UserID=str2bytes(self.user_id),
-                                         Password=str2bytes(self.password))
-            req_id = self.req_id
-            self.ReqUserLogin(req, req_id)
-            return req_id
-
-    def close(self):
-        """关闭"""
-        pass
-        # self.Join()
 
 
 class CtpTdApi(TraderApi):
