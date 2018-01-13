@@ -15,7 +15,12 @@
 # limitations under the License.
 
 from time import sleep
-from queue import Queue, Empty
+
+try:
+    from queue import Queue, Empty
+except ImportError:
+    from Queue import Queue, Empty
+
 from threading import Thread
 from six import iteritems
 
@@ -28,9 +33,8 @@ from rqalpha.utils.logger import system_log
 
 
 class QueuedEventSource(AbstractEventSource):
-    def __init__(self, env, logger):
+    def __init__(self, env):
         self._env = env
-        self._logger = logger
         self._queue = Queue()
 
         self._last_before_trading = None
@@ -118,10 +122,10 @@ class QueuedEventSource(AbstractEventSource):
                     if self._last_before_trading != e.trading_dt.date():
                         force_run_before_trading = False
                         self._last_before_trading = e.trading_dt.date()
-                        self._logger.debug('EVNET: {}'.format(str(e)))
+                        system_log.debug('EVNET: {}'.format(str(e)))
                         yield e
                 else:
-                    self._logger.debug('EVNET: {}'.format(str(e)))
+                    system_log.debug('EVNET: {}'.format(str(e)))
                     yield e
 
             events.clear()
@@ -129,12 +133,11 @@ class QueuedEventSource(AbstractEventSource):
 
 
 class SubEvnetSource(object):
-    def __init__(self, que, logger):
+    def __init__(self, que):
         self._que = que
         self._thread = Thread(target=self._run)
 
         self._env = Environment.get_instance()
-        self._logger = logger
 
         self.running = True
 
@@ -154,8 +157,8 @@ class SubEvnetSource(object):
 
 
 class TickEventSource(SubEvnetSource):
-    def __init__(self, que, logger, md_gateway):
-        super(TickEventSource, self).__init__(que, logger)
+    def __init__(self, que, md_gateway):
+        super(TickEventSource, self).__init__(que)
         md_gateway.on_subscribed_tick = self.put_tick
 
     @staticmethod
@@ -173,13 +176,14 @@ class TickEventSource(SubEvnetSource):
 
 
 class TimerEventSource(SubEvnetSource):
-    def __init__(self, que, logger, interval):
-        super(TimerEventSource, self).__init__(que, logger)
+    def __init__(self, que, interval=1):
+        super(TimerEventSource, self).__init__(que)
         self._interval = interval
 
         self._last_strategy_holding_status = False
 
     def _run(self):
+        # todo: before_trading, after_trading, settlement
         while self.running:
             sleep(self._interval)
             calendar_dt = self._env.calendar_dt
