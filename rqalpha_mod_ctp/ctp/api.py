@@ -146,7 +146,7 @@ class ApiMixIn(object):
 
 class CtpMdApi(MdApi, ApiMixIn):
     def __init__(self, user_id, password, broker_id, md_frontend_url, logger):
-        super(CtpMdApi, self).__init__()
+        MdApi.__init__(self)
         ApiMixIn.__init__(self, 'CtpMdApi', user_id, password, broker_id, md_frontend_url, logger)
 
         self.on_tick = None

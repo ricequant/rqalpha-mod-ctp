@@ -51,11 +51,9 @@ class CtpMod(AbstractMod):
         if env.config.base.run_type != RUN_TYPE.LIVE_TRADING and env.config.base.frequency != 'tick':
             system_log.warn('Run type or frequency not available, rqalpha-mod-ctp won\'t start.')
             return
-        if DEFAULT_ACCOUNT_TYPE.FUTURE not in self._env.config.base.accounts:
+        if DEFAULT_ACCOUNT_TYPE.FUTURE.name not in self._env.config.base.accounts:
             system_log.warn('Only support future, which is not in accounts, rqalpha-mod-ctp won\'t start.')
             return
-
-        system_log.info('Rqalpha-mod-ctp start up.')
 
         env.config.base.start_date = date.today()
 
@@ -75,15 +73,15 @@ class CtpMod(AbstractMod):
 
     def tear_down(self, code, exception=None):
         if self._md_gateway is not None:
-            self._md_gateway.exit()
+            self._md_gateway.tear_down()
         if self._trade_gateway is not None:
-            self._trade_gateway.exit()
+            self._trade_gateway.tear_down()
 
     def _init_trade_gateway(self):
         user_id = self._mod_config.user_id
         password = self._mod_config.password
         broker_id = self._mod_config.broker_id
-        trade_frontend_uri = self._mod_config.td_addr
+        trade_frontend_uri = self._mod_config.trade_frontend_url
 
         self._trade_gateway = TradeGateway(self._env, self._event_source)
         self._trade_gateway.connect(user_id, password, broker_id, trade_frontend_uri)

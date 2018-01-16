@@ -23,8 +23,8 @@ __config__ = {
     "user_id": None,
     "password": None,
     "broker_id": None,
-    "md_frontend_url": "tcp://180.168.146.187:10030",
-    "trade_frontend_url": "tcp://180.168.212.228:41213"
+    "md_frontend_url": "tcp://180.168.146.187:10011",
+    "trade_frontend_url": "tcp://180.168.146.187:10001"
 }
 
 

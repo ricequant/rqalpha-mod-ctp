@@ -32,7 +32,7 @@ class MdGateway(object):
             mod_config.user_id,
             mod_config.password,
             mod_config.broker_id,
-            mod_config.md_frontend_ul,
+            mod_config.md_frontend_url,
             system_log
         )
         self._subscribed = None
