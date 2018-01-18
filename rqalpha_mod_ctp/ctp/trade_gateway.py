@@ -35,7 +35,10 @@ from ..utils import cal_commission, margin_of
 class TradeGateway(object):
     def __init__(self, env, que, retry_times=5, retry_interval=2):
         self._env = env
-        self._run_id = env.config.base.run_id
+        try:
+            self._run_id = env.config.base.run_id
+        except AttributeError:
+            self._run_id = None
         self._que = que
 
         self._retry_times = retry_times

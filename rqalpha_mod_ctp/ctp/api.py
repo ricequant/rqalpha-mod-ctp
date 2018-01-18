@@ -14,15 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 from time import sleep
-from functools import wraps
 
-from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT
+from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT, ORDER_STATUS
 
 from .pyctp import MdApi, TraderApi, ApiStruct
-from .data_dict import TickDict, PositionDict, AccountDict, InstrumentDict, OrderDict, TradeDict, CommissionDict
-from ..utils import make_order_book_id, str2bytes, bytes2str, UserLogHelper
+from .data_dict import TickDict
+from ..utils import make_order_book_id, str2bytes, bytes2str, is_future
 
 ORDER_TYPE_MAPPING = {
     ORDER_TYPE.MARKET: ApiStruct.OPT_AnyPrice,
@@ -39,16 +37,6 @@ POSITION_EFFECT_MAPPING = {
     POSITION_EFFECT.CLOSE: ApiStruct.OF_Close,
     POSITION_EFFECT.CLOSE_TODAY: ApiStruct.OF_CloseToday,
 }
-
-
-def query_in_sync(func):
-    @wraps(func)
-    def wrapper(api, pData, pRspInfo, nRequestID, bIsLast):
-        api._req_id = max(api.req_id, nRequestID)
-        result = func(api, pData, pRspInfo, nRequestID, bIsLast)
-        if bIsLast:
-            api.gateway.on_query(api.api_name, nRequestID, result)
-    return wrapper
 
 
 class Status(object):
@@ -196,273 +184,177 @@ class CtpMdApi(MdApi, ApiMixIn):
             self.on_tick(tick_dict)
 
 
-class CtpTdApi(TraderApi):
-    def __init__(self, gateway, user_id, password, broker_id, address, api_name='ctp_td'):
-        super(CtpTdApi, self).__init__()
+class CtpTradeApi(TraderApi, ApiMixIn):
+    # TODO: 流文件放在不同路径(con)
+    def __init__(self, user_id, password, broker_id, md_frontend_url, logger):
+        TraderApi.__init__(self)
+        ApiMixIn.__init__(self, 'CtpTradeApi', user_id, password, broker_id, md_frontend_url, logger)
 
-        self.gateway = gateway
-        self._req_id = 0
+        self._session_id = None
+        self._front_id = None
+        self._ins_cache = {}
 
-        self.connected = False
-        self.logged_in = False
-        self.authenticated = False
+        self.on_order_status_updated = None
+        self.on_order_cancel_failed = None
+        self.on_trade = None
 
-        self.user_id = user_id
-        self.password = password
-        self.broker_id = broker_id
-        self.address = address
-        self.auth_code = None
-        self.user_production_info = None
+    def do_init(self):
+        self.Create()
+        self.SubscribePrivateTopic(ApiStruct.TERT_RESTART)
+        self.SubscribePublicTopic(ApiStruct.TERT_RESTART)
+        self.RegisterFront(str2bytes(self.frontend_url))
+        self.Init()
 
-        self.front_id = 0
-        self.session_id = 0
+    def prepare(self):
+        self.ReqQryInstrument(ApiStruct.QryInstrument(), self.req_id)
 
-        self.require_authentication = False
-
-        self.pos_cache = {}
-        self.ins_cache = {}
-        self.order_cache = {}
-
-        self.api_name = api_name
-
-    def OnFrontConnected(self):
-        self.connected = True
-        if self.require_authentication:
-            self.authenticate()
-        else:
-            self.login()
-
-    def OnFrontDisconnected(self, nReason):
-        self.connected = False
-        self.logged_in = False
-        UserLogHelper.log('CTP trade server disconnected, trying to reconnect.', 'warn')
-
-    def OnHeartBeatWarning(self, nTimeLapse):
-        """心跳报警"""
-        pass
-
-    def OnRspAuthenticate(self, pRspAuthenticate, pRspInfo, nRequestID, bIsLast):
-        """验证客户端回报"""
-        if pRspInfo.ErrorID == 0:
-            self.authenticated = True
-            self.login()
-        else:
-            self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
+    def close(self):
+        self.Release()
 
     def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
         """登陆回报"""
+        self.logger.debug('{}: OnRspUserLogin: {}, pRspInfo: {}'.format(self.name, pRspUserLogin, pRspInfo))
         if pRspInfo.ErrorID == 0:
-            self.front_id = pRspUserLogin.FrontID
-            self.session_id = pRspUserLogin.SessionID
-            self.logged_in = True
-            self.qrySettlementInfoConfirm()
+            self._front_id = pRspUserLogin.FrontID
+            self._session_id = pRspUserLogin.SessionID
+            self._status = Status.PREPARING
+            self.ReqSettlementInfoConfirm(ApiStruct.SettlementInfoConfirm(
+                BrokerID=str2bytes(self.broker_id), InvestorID=str2bytes(self.user_id)
+            ), self.req_id)
         else:
-            self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
+            self._status = Status.ERROR
+            self._status_msg = bytes2str(pRspInfo.ErrorMsg)
 
-    def OnRspUserLogout(self, pUserLogout, pRspInfo, nRequestID, bIsLast):
-        """登出回报"""
-        if pRspInfo.ErrorID == 0:
-            self.logged_in = False
-        else:
-            self.gateway.on_err(pRspInfo)
-
-    def OnRspOrderInsert(self, pInputOrder, pRspInfo, nRequestID, bIsLast):
-        order_dict = OrderDict(pInputOrder, rejected=True)
-        if order_dict.is_valid:
-            self.gateway.on_order(order_dict)
-
-    def OnRspOrderAction(self, pInputOrderAction, pRspInfo, nRequestID, bIsLast):
-        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
-
-    @query_in_sync
-    def OnRspQryOrder(self, pOrder, pRspInfo, nRequestID, bIsLast):
-        """报单回报"""
-        if pOrder:
-            order_dict = OrderDict(pOrder)
-            if order_dict.is_valid:
-                self.order_cache[order_dict.order_id] = order_dict
-        if bIsLast:
-            return self.order_cache
-
-    @query_in_sync
-    def OnRspQryInvestorPosition(self, pInvestorPosition, pRspInfo, nRequestID, bIsLast):
-        """持仓查询回报"""
-        if pInvestorPosition is None:
-            pass
-        elif pInvestorPosition.InstrumentID:
-            order_book_id = make_order_book_id(pInvestorPosition.InstrumentID)
-            if order_book_id not in self.pos_cache:
-                ins_dict = self.gateway.get_ins_dict(order_book_id)
-                self.pos_cache[order_book_id] = PositionDict(pInvestorPosition, ins_dict)
-            else:
-                self.pos_cache[order_book_id].update_data(pInvestorPosition)
-        if bIsLast:
-            return self.pos_cache
-
-    @query_in_sync
-    def OnRspQryTradingAccount(self, pTradingAccount, pRspInfo, nRequestID, bIsLast):
-        """资金账户查询回报"""
-        return AccountDict(pTradingAccount)
-
-    @query_in_sync
-    def OnRspQryInstrumentCommissionRate(self, pInstrumentCommissionRate, pRspInfo, nRequestID, bIsLast):
-        """请求查询合约手续费率响应"""
-        return CommissionDict(pInstrumentCommissionRate)
-
-    @query_in_sync
     def OnRspQryInstrument(self, pInstrument, pRspInfo, nRequestID, bIsLast):
         """合约查询回报"""
-        ins_dict = InstrumentDict(pInstrument)
-        if ins_dict.is_valid:
-            self.ins_cache[ins_dict.order_book_id] = ins_dict
+        if is_future(pInstrument.InstrumentID):
+            order_book_id = make_order_book_id(pInstrument.InstrumentID)
+            self._ins_cache[order_book_id] = {
+                'order_book_id': order_book_id,
+                'instrument_id': str2bytes(pInstrument.InstrumentID),
+                'exchange_id': str2bytes(pInstrument.ExchangeID),
+                'tick_size': float(pInstrument.PriceTick),
+                'contract_multiplier': pInstrument.VolumeMultiple,
+            }
         if bIsLast:
-            return self.ins_cache
+            self.logger.debug('{}: Last OnRspQryInstrument'.format(self.name))
+            self._status = Status.RUNNING
 
-    def OnRspError(self, pRspInfo, nRequestID, bIsLast):
-        """错误回报"""
-        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
+    def OnFrontConnected(self):
+        self.logger.debug('{}: OnFrontConnected'.format(self.name))
+        self.ReqUserLogin(ApiStruct.ReqUserLogin(
+            UserID=str2bytes(self.user_id),
+            BrokerID=str2bytes(self.broker_id),
+            Password=str2bytes(self.password),
+        ), self.req_id)
 
-    def OnRtnOrder(self, pOrder):
-        """报单回报"""
-        order_dict = OrderDict(pOrder)
-        if order_dict.is_valid:
-            self.gateway.on_order(order_dict)
+    def OnFrontDisconnected(self, nReason):
+        self.logger.debug('{}: OnFrontConnected'.format(self.name))
+        self._status = Status.DISCONNECTED
 
-    def OnRtnTrade(self, pTrade):
-        """成交回报"""
-        trade_dict = TradeDict(pTrade)
-        self.gateway.on_trade(trade_dict)
+    def OnRspOrderInsert(self, pInputOrder, pRspInfo, nRequestID, bIsLast):
+        self.logger.debug('{}: OnRspOrderInsert: {}'.format(self.name, pInputOrder))
+        if not pInputOrder.OrderRef:
+            return
+        self.on_order_status_updated(int(pInputOrder.OrderRef), ORDER_STATUS.REJECTED, bytes2str(pRspInfo.ErrorMsg))
 
     def OnErrRtnOrderInsert(self, pInputOrder, pRspInfo):
-        """发单错误回报（交易所）"""
-        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
-        order_dict = OrderDict(pInputOrder)
-        if order_dict.is_valid:
-            self.gateway.on_order(order_dict)
+        self.logger.debug('{}: OnErrRtnOrderInsert: {}'.format(self.name, pInputOrder))
+        if not pInputOrder.OrderRef:
+            return
+        self.on_order_status_updated(int(pInputOrder.OrderRef), ORDER_STATUS.REJECTED, bytes2str(pRspInfo.ErrorMsg))
+
+    def OnRspOrderAction(self, pInputOrderAction, pRspInfo, nRequestID, bIsLast):
+        self.logger.debug('{}: OnRspOrderAction: {}'.format(self.name, pInputOrderAction))
+        if not pInputOrderAction.OrderRef:
+            return
+        if pRspInfo.ErrorID == 0:
+            return
+        self.on_order_cancel_failed(int(pInputOrderAction.OrderRef), bytes2str(pRspInfo.ErrorMsg))
+
+    def OnRspError(self, pRspInfo, nRequestID, bIsLast):
+        self.logger.error('{}: OnRspError: {}'.format(self.name, pRspInfo))
 
     def OnErrRtnOrderAction(self, pOrderAction, pRspInfo):
-        """撤单错误回报（交易所）"""
-        self.gateway.on_err(pRspInfo, sys._getframe().f_code.co_name)
+        self.logger.debug('{}: OnErrRtnOrderAction: {}'.format(self.name, pOrderAction))
+        self.on_order_cancel_failed(int(pOrderAction.OrderRef), bytes2str(pRspInfo.ErrorMsg))
 
-    @property
-    def req_id(self):
-        self._req_id += 1
-        return self._req_id
-
-    def connect(self):
-        if not self.connected:
-            self.Create()
-            self.SubscribePrivateTopic(0)
-            self.SubscribePublicTopic(0)
-            self.RegisterFront(str2bytes(self.address))
-            self.Init()
-        else:
-            if self.require_authentication:
-                self.authenticate()
+    def OnRtnOrder(self, pOrder):
+        self.logger.debug('{}: OnRtnOrder: {}'.format(self.name, pOrder))
+        if pOrder.OrderStatus in [ApiStruct.OST_PartTradedQueueing, ApiStruct.OST_NoTradeQueueing]:
+            status = ORDER_STATUS.ACTIVE
+        elif pOrder.OrderStatus == ApiStruct.OST_AllTraded:
+            status = ORDER_STATUS.FILLED
+        elif pOrder.OrderStatus == ApiStruct.OST_Canceled:
+            if bytes2str(pOrder.StatusMsg) == '已撤单':
+                status = ORDER_STATUS.CANCELLED
             else:
-                self.login()
-
-    def authenticate(self):
-        """申请验证"""
-        if self.authenticated:
-            req = ApiStruct.AuthenticationInfo(
-                BrokerID=str2bytes(self.broker_id),
-                UserID=str2bytes(self.user_id),
-                AuthInfo=str2bytes(self.auth_code),
-                UserProductInfo=str2bytes(self.user_production_info)
-            )
-            req_id = self.req_id
-            self.ReqAuthenticate(req, req_id)
-            return req_id
+                status = ORDER_STATUS.REJECTED
+        elif pOrder.OrderStatus == ApiStruct.OST_Unknown:
+            return
         else:
-            self.login()
+            self.logger.error('{}: Order {} has an unrecognized order status: {}'.format(
+                self.name, int(pOrder.OrderRef), pOrder.OrderStatus
+            ))
+            return
 
-    def login(self):
-        """登录"""
-        if not self.logged_in:
-            req = ApiStruct.ReqUserLogin(
-                UserID=str2bytes(self.user_id),
-                BrokerID=str2bytes(self.broker_id),
-                Password=str2bytes(self.password),
+        self.on_order_status_updated(
+            int(pOrder.OrderRef),
+            status,
+            bytes2str(pOrder.StatusMsg),
+            bytes2str(pOrder.OrderSysID).strip()
+        )
+
+    def OnRtnTrade(self, pTrade):
+        self.logger.debug('{}: OnRtnTrade: {}'.format(self.name, pTrade))
+        self.on_trade(
+            int(pTrade.OrderRef),
+            int(pTrade.TradeID),
+            float(pTrade.Price),
+            float(pTrade.Volume),
+            int(pTrade.TradeTime.replace(b':', b'')) * 1000,
+            int(pTrade.TradeDate),
+            int(pTrade.TradingDay),
+            bytes2str(pTrade.OrderSysID).strip(),
+        )
+
+    def create_order(self, order):
+        self.logger.debug('{}: CreateOrder: {}'.format(self.name, order))
+        ins_dict = self._ins_cache.get(order.order_book_id)
+        if ins_dict is None:
+            order.update_status(
+                ORDER_STATUS.REJECTED,
+                message='Account is not inited successfully or instrument {} is not trading.'.format(
+                    order.order_book_id
+                )
             )
-            req_id = self.req_id
-            self.ReqUserLogin(req, req_id)
-            return req_id
-
-    def qrySettlementInfoConfirm(self):
-        req = ApiStruct.SettlementInfoConfirm(BrokerID=str2bytes(self.broker_id), InvestorID=str2bytes(self.user_id))
-        req_id = self.req_id
-        self.ReqSettlementInfoConfirm(req, req_id)
-
-    def qryInstrument(self):
-        self.ins_cache = {}
-        req = ApiStruct.QryInstrument()
-        req_id = self.req_id
-        self.ReqQryInstrument(req, req_id)
-        return req_id
-
-    def qryCommission(self, order_book_id):
-        ins_dict = self.gateway.get_ins_dict(order_book_id)
-        if ins_dict is None:
-            return None
-        req = ApiStruct.QryInstrumentCommissionRate(
-            InstrumentID=str2bytes(ins_dict.instrument_id),
-            InvestorID=str2bytes(self.user_id),
-            BrokerID=str2bytes(self.broker_id),
-        )
-        req_id = self.req_id
-        self.ReqQryInstrumentCommissionRate(req, req_id)
-        return req_id
-
-    def qryAccount(self):
-        req = ApiStruct.QryTradingAccount()
-        req_id = self.req_id
-        self.ReqQryTradingAccount(req, req_id)
-        return req_id
-
-    def qryPosition(self):
-        self.pos_cache = {}
-        req = ApiStruct.QryInvestorPosition(
-            BrokerID=str2bytes(self.broker_id),
-            InvestorID=str2bytes(self.user_id)
-        )
-        req_id = self.req_id
-        self.ReqQryInvestorPosition(req, req_id)
-        return req_id
-
-    def qryOrder(self):
-        self.order_cache = {}
-        req = ApiStruct.QryOrder(
-            BrokerID=str2bytes(self.broker_id),
-            InvestorID=str2bytes(self.user_id)
-        )
-        req_id = self.req_id
-        self.ReqQryOrder(req, req_id)
-        return req_id
-
-    def sendOrder(self, order):
-        ins_dict = self.gateway.get_ins_dict(order.order_book_id)
-        if ins_dict is None:
-            UserLogHelper.log('Send order failed, the instrument does not exists.', 'warn')
             return
         try:
             price_type = ORDER_TYPE_MAPPING[order.type]
         except KeyError:
-            UserLogHelper.log('Send order failed, the order type was not support.', 'warn')
+            order.update_status(
+                ORDER_STATUS.REJECTED, message='Order type {} is not supported by gateway.'.format(order.type)
+            )
             return
 
-        if order.type == ORDER_TYPE.LIMIT:
-            price = int(float(order.price) / ins_dict.tick_size) * ins_dict.tick_size
-        else:
-            price = order.price
+        try:
+            position_effect = POSITION_EFFECT_MAPPING[order.position_effect]
+        except KeyError:
+            order.update_status(
+                ORDER_STATUS.REJECTED,
+                message='Order position effect {} is not supported by gateway.'.format(order.position_effect)
+            )
 
+            return
+
+        req_id = self.req_id
         req = ApiStruct.InputOrder(
-            InstrumentID=str2bytes(ins_dict.instrument_id),
-            LimitPrice=float(price),
+            InstrumentID=str2bytes(ins_dict['instrument_id']),
+            LimitPrice=float(order.price),
             VolumeTotalOriginal=int(order.quantity),
             OrderPriceType=price_type,
             Direction=SIDE_MAPPING.get(order.side, ''),
-            CombOffsetFlag=POSITION_EFFECT_MAPPING.get(order.position_effect, ''),
+            CombOffsetFlag=position_effect,
 
             OrderRef=str2bytes(str(order.order_id)),
             InvestorID=str2bytes(self.user_id),
@@ -476,32 +368,31 @@ class CtpTdApi(TraderApi):
             TimeCondition=ApiStruct.TC_GFD,
             VolumeCondition=ApiStruct.VC_AV,
             MinVolume=1,
-        )
-        req_id = self.req_id
-        self.ReqOrderInsert(req, req_id)
-        return self.req_id
 
-    def cancelOrder(self, order):
-        ins_dict = self.gateway.get_ins_dict(order.order_book_id)
+            RequestID=req_id,
+        )
+        self.ReqOrderInsert(req, req_id)
+
+    def cancel_order(self, order):
+        self.logger.debug('{}: CancelOrder: {}'.format(self.name, order))
+        ins_dict = self._ins_cache.get(order.order_book_id)
         if ins_dict is None:
-            UserLogHelper.log('Cancel order failed, the instrument does not exists', 'warn')
+            # TODO: cancal failed
+            order.update_status(ORDER_STATUS.REJECTED, message='Instrument {} is not in trading currently'.format(order.order_book_id))
             return None
 
+        req_id = self.req_id
         req = ApiStruct.InputOrderAction(
-            InstrumentID=str2bytes(ins_dict.instrument_id),
-            ExchangeID=str2bytes(ins_dict.exchange_id),
+            InstrumentID=str2bytes(ins_dict['instrument_id']),
+            ExchangeID=str2bytes(ins_dict['exchange_id']),
             OrderRef=str2bytes(str(order.order_id)),
-            FrontID=int(self.front_id),
-            SessionID=int(self.session_id),
+            FrontID=int(self._front_id),
+            SessionID=int(order.session_id),
 
             ActionFlag=ApiStruct.AF_Delete,
             BrokerID=str2bytes(self.broker_id),
             InvestorID=str2bytes(self.user_id),
-        )
-        req_id = self.req_id
-        self.ReqOrderAction(req, req_id)
-        return req_id
 
-    def close(self):
-        pass
-        # self.Join()
+            RequestID=req_id,
+        )
+        self.ReqOrderAction(req, req_id)
