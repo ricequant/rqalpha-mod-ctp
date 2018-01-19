@@ -19,7 +19,6 @@ from time import sleep
 from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT, ORDER_STATUS
 
 from .pyctp import MdApi, TraderApi, ApiStruct
-from .data_dict import TickDict
 from ..utils import make_order_book_id, str2bytes, bytes2str, is_future
 
 ORDER_TYPE_MAPPING = {
@@ -179,9 +178,46 @@ class CtpMdApi(MdApi, ApiMixIn):
 
     def OnRtnDepthMarketData(self, pDepthMarketData):
         """行情推送"""
-        tick_dict = TickDict(pDepthMarketData)
-        if tick_dict.is_valid:
-            self.on_tick(tick_dict)
+        try:
+            self.on_tick({
+                'order_book_id': make_order_book_id(pDepthMarketData.InstrumentID),
+                'date': int(pDepthMarketData.TradingDay),
+                'time': int((bytes2str(pDepthMarketData.UpdateTime).replace(':', ''))) * 1000 + int(pDepthMarketData.UpdateMillisec),
+                'open': pDepthMarketData.OpenPrice,
+                'last': pDepthMarketData.LastPrice,
+                'low': pDepthMarketData.LowestPrice,
+                'high': pDepthMarketData.HighestPrice,
+                'prev_close': pDepthMarketData.PreClosePrice,
+                'volume': pDepthMarketData.Volume,
+                'total_turnover': pDepthMarketData.Turnover,
+                'open_interest': pDepthMarketData.OpenInterest,
+                'prev_settlement': pDepthMarketData.SettlementPrice,
+                'b1': pDepthMarketData.BidPrice1,
+                'b2': pDepthMarketData.BidPrice2,
+                'b3': pDepthMarketData.BidPrice3,
+                'b4': pDepthMarketData.BidPrice4,
+                'b5': pDepthMarketData.BidPrice5,
+                'b1_v': pDepthMarketData.BidVolume1,
+                'b2_v': pDepthMarketData.BidVolume2,
+                'b3_v': pDepthMarketData.BidVolume3,
+                'b4_v': pDepthMarketData.BidVolume4,
+                'b5_v': pDepthMarketData.BidVolume5,
+                'a1': pDepthMarketData.AskPrice1,
+                'a2': pDepthMarketData.AskPrice2,
+                'a3': pDepthMarketData.AskPrice3,
+                'a4': pDepthMarketData.AskPrice4,
+                'a5': pDepthMarketData.AskPrice5,
+                'a1_v': pDepthMarketData.AskVolume1,
+                'a2_v': pDepthMarketData.AskVolume2,
+                'a3_v': pDepthMarketData.AskVolume3,
+                'a4_v': pDepthMarketData.AskVolume4,
+                'a5_v': pDepthMarketData.AskVolume5,
+
+                'limit_up': pDepthMarketData.UpperLimitPrice,
+                'limit_down': pDepthMarketData.LowerLimitPrice,
+            })
+        except ValueError:
+            pass
 
 
 class CtpTradeApi(TraderApi, ApiMixIn):
@@ -318,34 +354,23 @@ class CtpTradeApi(TraderApi, ApiMixIn):
             bytes2str(pTrade.OrderSysID).strip(),
         )
 
-    def create_order(self, order):
-        self.logger.debug('{}: CreateOrder: {}'.format(self.name, order))
+    def submit_order(self, order):
+        self.logger.debug('{}: SubmitOrder: {}'.format(self.name, order))
+        if self._status != Status.RUNNING:
+            raise RuntimeError('Ctp api not ready,')
         ins_dict = self._ins_cache.get(order.order_book_id)
         if ins_dict is None:
-            order.update_status(
-                ORDER_STATUS.REJECTED,
-                message='Account is not inited successfully or instrument {} is not trading.'.format(
-                    order.order_book_id
-                )
+            raise RuntimeError(
+                'Account is not inited successfully or instrument {} is not trading.'.format(order.order_book_id)
             )
-            return
         try:
             price_type = ORDER_TYPE_MAPPING[order.type]
         except KeyError:
-            order.update_status(
-                ORDER_STATUS.REJECTED, message='Order type {} is not supported by gateway.'.format(order.type)
-            )
-            return
-
+            raise RuntimeError('Order type {} is not supported by ctp api.'.format(order.type))
         try:
             position_effect = POSITION_EFFECT_MAPPING[order.position_effect]
         except KeyError:
-            order.update_status(
-                ORDER_STATUS.REJECTED,
-                message='Order position effect {} is not supported by gateway.'.format(order.position_effect)
-            )
-
-            return
+            raise RuntimeError('Order position effect {} is not supported by ctp api.'.format(order.position_effect))
 
         req_id = self.req_id
         req = ApiStruct.InputOrder(
@@ -377,9 +402,7 @@ class CtpTradeApi(TraderApi, ApiMixIn):
         self.logger.debug('{}: CancelOrder: {}'.format(self.name, order))
         ins_dict = self._ins_cache.get(order.order_book_id)
         if ins_dict is None:
-            # TODO: cancal failed
-            order.update_status(ORDER_STATUS.REJECTED, message='Instrument {} is not in trading currently'.format(order.order_book_id))
-            return None
+            raise RuntimeError('Account is not inited successfully or instrument {} is not trading.'.format(order.order_book_id))
 
         req_id = self.req_id
         req = ApiStruct.InputOrderAction(

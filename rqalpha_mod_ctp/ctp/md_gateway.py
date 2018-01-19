@@ -20,14 +20,16 @@ except ImportError:
     from queue import Queue, Empty
 
 from rqalpha.utils.logger import system_log
-from rqalpha.events import EVENT
+from rqalpha.events import EVENT, Event
 from rqalpha.model.tick import Tick
 
 from .api import CtpMdApi
 
 
 class MdGateway(object):
-    def __init__(self, env, mod_config):
+    def __init__(self, env, mod_config, que):
+        self._env = env
+        self._que = que
         self._md_api = CtpMdApi(
             mod_config.user_id,
             mod_config.password,
@@ -35,14 +37,14 @@ class MdGateway(object):
             mod_config.md_frontend_url,
             system_log
         )
+        self._md_api.on_tick = self.on_tick
+
         self._subscribed = None
         self._snapshot_cache = {}
-
-        self.on_subscribed_tick = None
-
-        self._md_api.on_tick = self.on_tick
-        self._md_api.start_up()
         env.event_bus.add_listener(EVENT.POST_UNIVERSE_CHANGED, self.on_universe_changed)
+
+        self._md_api.start_up()
+        # TODO: 订阅
 
     def tear_down(self):
         self._md_api.tear_down()
@@ -54,7 +56,12 @@ class MdGateway(object):
     def on_tick(self, tick_dict):
         if tick_dict.order_book_id in self._subscribed:
             tick = Tick(tick_dict.order_book_id, tick_dict)
-            self.on_subscribed_tick(tick)
+            self._que.put(Event(
+                EVENT.TICK,
+                calendar_dt=tick.datetime,
+                trading_dt=self._env.data_proxy.get_trading_dt(tick.datetime),
+                tick=tick
+            ))
         self._snapshot_cache[tick_dict.order_book_id] = tick_dict
 
     def on_universe_changed(self, event):

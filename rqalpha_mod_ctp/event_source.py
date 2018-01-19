@@ -57,7 +57,7 @@ class QueuedEventSource(AbstractEventSource):
     def _on_universe_change(self, *args):
         self._universe_changed = True
 
-    def push(self, event):
+    def put(self, event):
         self._queue.put(event)
 
     MARKET_DATA_EVENTS = {EVENT.TICK, EVENT.BEFORE_TRADING, EVENT.AFTER_TRADING, EVENT.SETTLEMENT}
@@ -154,25 +154,6 @@ class SubEvnetSource(object):
         self.running = False
         if self._thread.is_alive():
             self._thread.join()
-
-
-class TickEventSource(SubEvnetSource):
-    def __init__(self, que, md_gateway):
-        super(TickEventSource, self).__init__(que)
-        md_gateway.on_subscribed_tick = self.put_tick
-
-    @staticmethod
-    def _filter_ticks(events):
-        return {order_book_id: msgs[-1] for order_book_id, msgs in iteritems(events)}
-
-    def _run(self):
-        pass
-
-    def put_tick(self, tick):
-        calendar_dt = tick.datetime
-        trading_dt = self._env.data_proxy.get_trading_dt(calendar_dt)
-
-        self._yield_event(Event(EVENT.TICK, calendar_dt=calendar_dt, trading_dt=trading_dt, tick=tick))
 
 
 class TimerEventSource(SubEvnetSource):
