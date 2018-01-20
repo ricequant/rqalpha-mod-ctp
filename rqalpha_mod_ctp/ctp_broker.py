@@ -15,8 +15,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from six import itervalues
+
+
 from rqalpha.events import EVENT, Event
 from rqalpha.interface import AbstractBroker
+from rqalpha.const import DEFAULT_ACCOUNT_TYPE
+from rqalpha.model.portfolio import Portfolio
 
 
 class CtpBroker(AbstractBroker):
@@ -30,13 +35,12 @@ class CtpBroker(AbstractBroker):
         pass
 
     def before_trading(self):
-        self._trade_gateway.connect()
         for account, order in self._trade_gateway.open_orders:
             order.active()
             self._env.event_bus.publish_event(Event(EVENT.ORDER_CREATION_PASS, account=account, order=order))
 
     def get_open_orders(self, order_book_id=None):
-        if order_book_id is not None:
+        if order_book_id:
             return [order for order in self._trade_gateway.open_orders if order.order_book_id == order_book_id]
         else:
             return self._trade_gateway.open_orders
@@ -48,5 +52,11 @@ class CtpBroker(AbstractBroker):
         self._trade_gateway.cancel_order(order)
 
     def get_portfolio(self):
-        return self._trade_gateway.get_portfolio()
+        # TODO: init_positions
+        return Portfolio(
+            self._env.config.base.start_date,
+            1,
+            sum(itervalues(self._env.config.base.accounts)),
+            {DEFAULT_ACCOUNT_TYPE.FUTURE: self._trade_gateway.account}
+        )
 

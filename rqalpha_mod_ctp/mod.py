@@ -27,7 +27,7 @@ from .ctp_data_source import CtpDataSource
 from .ctp_price_board import CtpPriceBoard
 from .ctp.md_gateway import MdGateway
 from .ctp.trade_gateway import TradeGateway
-from .event_source import QueuedEventSource, TickEventSource, TimerEventSource
+from .event_source import QueuedEventSource, TimerEventSource
 
 
 class CtpMod(AbstractMod):
@@ -56,14 +56,14 @@ class CtpMod(AbstractMod):
             return
 
         env.config.base.start_date = date.today()
-
-        self._md_gateway = MdGateway(env, mod_config)
         self._event_source = QueuedEventSource(env)
+
+        self._md_gateway = MdGateway(env, mod_config, self._event_source)
+
         self._sub_event_sources.append(TimerEventSource(self._event_source))
-        self._sub_event_sources.append(TickEventSource(self._event_source, self._md_gateway))
         env.set_event_source(self._event_source)
 
-        self._init_trade_gateway()
+        self._trade_gateway = TradeGateway(env, mod_config, self._event_source)
         self._env.set_broker(CtpBroker(env, self._trade_gateway))
 
         self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
@@ -76,15 +76,6 @@ class CtpMod(AbstractMod):
             self._md_gateway.tear_down()
         if self._trade_gateway is not None:
             self._trade_gateway.tear_down()
-
-    def _init_trade_gateway(self):
-        user_id = self._mod_config.user_id
-        password = self._mod_config.password
-        broker_id = self._mod_config.broker_id
-        trade_frontend_uri = self._mod_config.trade_frontend_url
-
-        self._trade_gateway = TradeGateway(self._env, self._event_source)
-        self._trade_gateway.connect(user_id, password, broker_id, trade_frontend_uri)
 
     def _run_sub_event_sources(self, *args, **kwargs):
         for sub_event_source in self._sub_event_sources:

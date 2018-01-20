@@ -19,8 +19,6 @@ import re
 import platform
 
 from rqalpha.environment import Environment
-from rqalpha.const import POSITION_EFFECT, COMMISSION_TYPE
-from rqalpha.utils.logger import user_system_log
 
 
 PY_VERSION = platform.python_version()[:3]
@@ -69,29 +67,6 @@ def make_order_book_id(symbol):
     return order_book_id.upper()
 
 
-def cal_commission(trade_dict, position_effect):
-    order_book_id = trade_dict.order_book_id
-    env = Environment.get_instance()
-    info = env.data_proxy.get_commission_info(order_book_id)
-    commission = 0
-    if info['commission_type'] == COMMISSION_TYPE.BY_MONEY:
-        contract_multiplier = env.get_instrument(trade_dict.order_book_id).contract_multiplier
-        if position_effect == POSITION_EFFECT.OPEN:
-            commission += trade_dict.price * trade_dict.quantity * contract_multiplier * info['open_commission_ratio']
-        elif position_effect == POSITION_EFFECT.CLOSE:
-            commission += trade_dict.price * trade_dict.quantity * contract_multiplier * info['close_commission_ratio']
-        elif position_effect == POSITION_EFFECT.CLOSE_TODAY:
-            commission += trade_dict.price * trade_dict.quantity * contract_multiplier * info['close_commission_today_ratio']
-    else:
-        if position_effect == POSITION_EFFECT.OPEN:
-            commission += trade_dict.quantity * info['open_commission_ratio']
-        elif position_effect == POSITION_EFFECT.CLOSE:
-            commission += trade_dict.quantity * info['close_commission_ratio']
-        elif position_effect == POSITION_EFFECT.CLOSE_TODAY:
-            commission += trade_dict.quantity * info['close_commission_today_ratio']
-    return commission
-
-
 def margin_of(order_book_id, quantity, price):
     env = Environment.get_instance()
     margin_info = env.data_proxy.get_margin_info(order_book_id)
@@ -107,31 +82,3 @@ def is_future(order_book_id):
         return False
     return re.match('^[a-zA-Z]+[0-9]+$', order_book_id) is not None
 
-
-class UserLogHelper(object):
-    _system_inited = False
-    _log_cache = []
-
-    LEVEL_MAPPING = {
-        'debug': user_system_log.debug,
-        'info': user_system_log.info,
-        'warn': user_system_log.warn,
-        'error': user_system_log.error,
-    }
-
-    @classmethod
-    def register(cls):
-        Environment.get_instance().event_bus.add_listener(EVENT.POST_SYSTEM_INIT, cls.on_system_init)
-
-    @classmethod
-    def log(cls, msg, level):
-        if cls._system_inited:
-            cls.LEVEL_MAPPING[level](msg)
-        else:
-            cls._log_cache.append((msg, level))
-
-    @classmethod
-    def on_system_init(cls, *args, **kwargs):
-        for msg, level in cls._log_cache:
-            cls.LEVEL_MAPPING[level](msg)
-        cls._system_inited = True
