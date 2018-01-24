@@ -15,10 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import date
+from functools import lru_cache
+
 from rqalpha.data.base_data_source import BaseDataSource
 from rqalpha.model.snapshot import SnapshotObject
 from rqalpha.utils.logger import system_log
-from datetime import date
 
 
 class CtpDataSource(BaseDataSource):
@@ -26,7 +28,7 @@ class CtpDataSource(BaseDataSource):
         path = env.config.base.data_bundle_path
         super(CtpDataSource, self).__init__(path)
         self._md_gateway = md_gateway
-        self._md_gateway = trade_gateway
+        self._trade_gateway = trade_gateway
 
     def current_snapshot(self, instrument, frequency, dt):
         if frequency != 'tick':
@@ -45,11 +47,13 @@ class CtpDataSource(BaseDataSource):
         e = date.fromtimestamp(2147483647)
         return s, e
 
-    def get_future_info(self, instrument, hedge_type):
-        order_book_id = instrument.order_book_id
-        try:
-            underlying_symbol = self._trading_dates.get_ins_dict(order_book_id).underlying_symbol
-            hedge_flag = hedge_type.value
-            return self._trading_dates.get_future_info(underlying_symbol).get(hedge_flag)
-        except AttributeError:
-            return None
+    @lru_cache(None)
+    def get_future_info(self, instrument=None):
+        if instrument:
+            order_book_id = instrument.order_book_id
+            try:
+                return self._trade_gateway.future_infos[order_book_id]
+            except KeyError:
+                return None
+        else:
+            return self._trade_gateway.future_infos

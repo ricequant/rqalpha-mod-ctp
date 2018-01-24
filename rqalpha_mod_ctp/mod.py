@@ -56,8 +56,10 @@ class CtpMod(AbstractMod):
             return
 
         env.config.base.start_date = date.today()
-        self._event_source = QueuedEventSource(env)
+        self._trade_gateway = TradeGateway(env, mod_config, self._event_source)
+        self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
 
+        self._event_source = QueuedEventSource(env)
         self._md_gateway = MdGateway(env, mod_config, self._event_source)
 
         self._sub_event_sources.append(TimerEventSource(self._event_source))
@@ -66,7 +68,6 @@ class CtpMod(AbstractMod):
         self._trade_gateway = TradeGateway(env, mod_config, self._event_source)
         self._env.set_broker(CtpBroker(env, self._trade_gateway))
 
-        self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
         self._env.set_price_board(CtpPriceBoard(self._md_gateway, self._trade_gateway))
 
         self._env.event_bus.add_listener(EVENT.POST_SYSTEM_INIT, self._run_sub_event_sources)

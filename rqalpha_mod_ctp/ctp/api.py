@@ -137,6 +137,7 @@ class CtpMdApi(MdApi, ApiMixIn):
         ApiMixIn.__init__(self, 'CtpMdApi', user_id, password, broker_id, md_frontend_url, logger)
 
         self.on_tick = None
+        self.get_instrument_ids = None
 
     def do_init(self):
         self.Create()
@@ -144,6 +145,7 @@ class CtpMdApi(MdApi, ApiMixIn):
         self.Init()
 
     def prepare(self):
+        self.SubscribeMarketData([str2bytes(i) for i in self.get_instrument_ids()])
         self._status = Status.RUNNING
 
     def close(self):
@@ -163,9 +165,7 @@ class CtpMdApi(MdApi, ApiMixIn):
 
     def OnRspError(self, pRspInfo, nRequestID, bIsLast):
         """错误回报"""
-        self.logger.warn('{}: OnRspError, ErrID: {}, ErrMsg: {}'.format(
-            self.name, pRspInfo.ErrorID, bytes2str(pRspInfo.ErrorMsg)
-        ))
+        self.logger.error('{}: OnRspError: {}, {}'.format(self.name, bytes2str(pRspInfo.ErrorMsg), pRspInfo.ErrorID))
 
     def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
         """登陆回报"""
@@ -242,6 +242,7 @@ class CtpTradeApi(TraderApi, ApiMixIn):
         self.Init()
 
     def prepare(self):
+        print('QryInstrument')
         self.ReqQryInstrument(ApiStruct.QryInstrument(), self.req_id)
 
     def close(self):
@@ -309,7 +310,7 @@ class CtpTradeApi(TraderApi, ApiMixIn):
         self.on_order_cancel_failed(int(pInputOrderAction.OrderRef), bytes2str(pRspInfo.ErrorMsg))
 
     def OnRspError(self, pRspInfo, nRequestID, bIsLast):
-        self.logger.error('{}: OnRspError: {}'.format(self.name, pRspInfo))
+        self.logger.error('{}: OnRspError: {}, {}'.format(self.name, bytes2str(pRspInfo.ErrorMsg), pRspInfo.ErrorID))
 
     def OnErrRtnOrderAction(self, pOrderAction, pRspInfo):
         self.logger.debug('{}: OnErrRtnOrderAction: {}'.format(self.name, pOrderAction))
@@ -419,3 +420,7 @@ class CtpTradeApi(TraderApi, ApiMixIn):
             RequestID=req_id,
         )
         self.ReqOrderAction(req, req_id)
+
+    @property
+    def future_infos(self):
+        return self._ins_cache

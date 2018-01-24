@@ -145,7 +145,7 @@ class SubEvnetSource(object):
         raise NotImplementedError()
 
     def _yield_event(self, event):
-        self._que.push(event)
+        self._que.put(event)
 
     def start(self):
         self._thread.start()

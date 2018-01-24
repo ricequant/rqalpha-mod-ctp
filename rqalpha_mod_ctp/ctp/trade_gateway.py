@@ -37,17 +37,18 @@ class TradeGateway(object):
             mod_config.user_id,
             mod_config.password,
             mod_config.broker_id,
-            mod_config.md_frontend_url,
+            mod_config.trade_frontend_url,
             system_log
         )
         self._trade_api.on_order_status_updated = self.on_order_status_updated
         self._trade_api.on_order_cancel_failed = self.on_order_cancel_failed
         self._trade_api.on_trade = self.on_trade
-
-        self._account = FutureAccount(
-            env.config.base.accounts.get(DEFAULT_ACCOUNT_TYPE.FUTURE.name, env.config.base.future_starting_cash),
-            Positions(FuturePosition)
-        )
+        try:
+            self._account = FutureAccount(
+                env.config.base.accounts[DEFAULT_ACCOUNT_TYPE.FUTURE.name],Positions(FuturePosition)
+            )
+        except KeyError:
+            self._account = FutureAccount(self._env.config.base.future_starting_cash, Positions(FuturePosition))
 
         self._open_orders = {}
         self._lock = Lock()
@@ -79,6 +80,10 @@ class TradeGateway(object):
     def open_orders(self):
         with self._lock:
             return list(itervalues(self._open_orders))
+
+    @property
+    def future_infos(self):
+        return self._trade_api.future_infos
 
     @property
     def account(self):
