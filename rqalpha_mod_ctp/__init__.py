@@ -56,7 +56,7 @@ cli.commands['run'].params.append(
 
 cli.commands['run'].params.append(
     click.Option(
-        ('-ctpta', '--ctp-td-addr', cli_prefix + 'td_addr'),
+        ('-ctpta', '--ctp-trade-frontend-url', cli_prefix + 'trade_frontend_url'),
         type=click.STRING,
         help="[ctp] trade address",
     )
@@ -64,18 +64,9 @@ cli.commands['run'].params.append(
 
 cli.commands['run'].params.append(
     click.Option(
-        ('-ctpma', '--ctp-md-addr', cli_prefix + 'md_addr'),
+        ('-ctpma', '--ctp-md-frontend-url', cli_prefix + 'md_frontend_url'),
         type=click.STRING,
         help="[ctp] market data address",
-    )
-)
-
-
-cli.commands['run'].params.append(
-    click.Option(
-        ('-ctpad', '--ctp-all-day', cli_prefix + 'all_day'),
-        type=click.BOOL,
-        help="[ctp] run strategy all day",
     )
 )
 
