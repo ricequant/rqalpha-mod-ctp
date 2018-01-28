@@ -94,7 +94,7 @@ class TradeGateway(object):
             try:
                 order = self._open_orders[order_id]
             except KeyError:
-                system_log.warn('Order status updated but no open_order was found, order_id: {}, status: {}, msgs: {}'.format(
+                system_log.debug('Order status updated but no open_order was found, order_id: {}, status: {}, msgs: {}'.format(
                         order_id, status, message
                 ))
                 return

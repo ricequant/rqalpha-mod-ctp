@@ -57,6 +57,6 @@ class CtpBroker(AbstractBroker):
             self._env.config.base.start_date,
             1,
             sum(itervalues(self._env.config.base.accounts)),
-            {DEFAULT_ACCOUNT_TYPE.FUTURE: self._trade_gateway.account}
+            {DEFAULT_ACCOUNT_TYPE.FUTURE.name: self._trade_gateway.account}
         )
 

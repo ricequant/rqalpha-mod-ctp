@@ -22,7 +22,6 @@ except ImportError:
     from Queue import Queue, Empty
 
 from threading import Thread
-from six import iteritems
 
 from rqalpha.environment import Environment
 from rqalpha.events import EVENT, Event
@@ -132,36 +131,16 @@ class QueuedEventSource(AbstractEventSource):
             events.append(self._queue.get())
 
 
-class SubEvnetSource(object):
-    def __init__(self, que):
-        self._que = que
-        self._thread = Thread(target=self._run)
-
-        self._env = Environment.get_instance()
-
-        self.running = True
-
-    def _run(self):
-        raise NotImplementedError()
-
-    def _yield_event(self, event):
-        self._que.put(event)
-
-    def start(self):
-        self._thread.start()
-
-    def stop(self):
-        self.running = False
-        if self._thread.is_alive():
-            self._thread.join()
-
-
-class TimerEventSource(SubEvnetSource):
+class TimerEventSource(object):
     def __init__(self, que, interval=1):
-        super(TimerEventSource, self).__init__(que)
+        self._que = que
         self._interval = interval
 
+        self._thread = Thread(target=self._run)
+        self._env = Environment.get_instance()
         self._last_strategy_holding_status = False
+
+        self.running = True
 
     def _run(self):
         # todo: before_trading, after_trading, settlement
@@ -183,3 +162,14 @@ class TimerEventSource(SubEvnetSource):
                 self._last_strategy_holding_status = current_strategy_holding_status
 
             self._yield_event(Event(EVENT.DO_PERSIST, calendar_dt=calendar_dt, trading_dt=trading_dt))
+
+    def _yield_event(self, event):
+        self._que.put(event)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self.running = False
+        if self._thread.is_alive():
+            self._thread.join()

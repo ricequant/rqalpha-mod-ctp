@@ -14,12 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import six
+import re
 from time import sleep
 
 from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT, ORDER_STATUS
 
 from .pyctp import MdApi, TraderApi, ApiStruct
-from ..utils import make_order_book_id, str2bytes, bytes2str, is_future
 
 ORDER_TYPE_MAPPING = {
     ORDER_TYPE.MARKET: ApiStruct.OPT_AnyPrice,
@@ -43,6 +44,54 @@ class Status(object):
     DISCONNECTED = 0
     PREPARING = 1
     RUNNING = 2
+
+
+def str2bytes(obj):
+    if six.PY2:
+        return obj
+    else:
+        if isinstance(obj, str):
+            return obj.encode('GBK')
+        elif isinstance(obj, int):
+            return str(obj).encode('GBK')
+        else:
+            return obj
+
+
+def bytes2str(obj):
+    if six.PY2:
+        return obj
+    else:
+        if isinstance(obj, bytes):
+            return obj.decode('GBK')
+        else:
+            return obj
+
+
+def make_underlying_symbol(id_or_symbol):
+    id_or_symbol = bytes2str(id_or_symbol)
+    if six.PY2:
+        return filter(lambda x: x not in '0123456789 ', id_or_symbol).upper()
+    else:
+        return ''.join(list(filter(lambda x: x not in '0123456789 ', 'rb1705'))).upper()
+
+
+def make_order_book_id(symbol):
+    symbol = bytes2str(symbol)
+    if len(symbol) < 4:
+        return None
+    if symbol[-4] not in '0123456789':
+        order_book_id = symbol[:2] + '1' + symbol[-3:]
+    else:
+        order_book_id = symbol
+    return order_book_id.upper()
+
+
+def is_future(order_book_id):
+    order_book_id = bytes2str(order_book_id)
+    if order_book_id is None:
+        return False
+    return re.match('^[a-zA-Z]+[0-9]+$', order_book_id) is not None
 
 
 class ApiMixIn(object):

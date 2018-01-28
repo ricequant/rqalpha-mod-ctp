@@ -15,7 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ...utils import PY_VERSION, SYS_ARCHITECTURE, SYS_PLATFORM
+import platform
+
+PY_VERSION = platform.python_version()[:3]
+SYS_PLATFORM = platform.system()
+SYS_ARCHITECTURE = platform.architecture()[0]
 
 if SYS_PLATFORM == 'Linux' and PY_VERSION == '2.7' and SYS_ARCHITECTURE == '64bit':
     from .linux64_27 import ApiStruct, MdApi, TraderApi
