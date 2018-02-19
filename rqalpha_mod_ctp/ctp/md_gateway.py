@@ -23,6 +23,7 @@ from six import itervalues
 from rqalpha.utils.logger import system_log
 from rqalpha.events import EVENT, Event
 from rqalpha.model.tick import Tick
+from rqalpha.utils.datetime_func import convert_date_time_ms_int_to_datetime
 
 from .api import CtpMdApi
 

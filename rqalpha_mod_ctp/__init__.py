@@ -20,11 +20,16 @@ from rqalpha.__main__ import cli
 
 __config__ = {
     "enabled": True,
+    "priority": 101,
     "user_id": None,
     "password": None,
     "broker_id": None,
     "md_frontend_url": "tcp://180.168.146.187:10011",
-    "trade_frontend_url": "tcp://180.168.146.187:10001"
+    "trade_frontend_url": "tcp://180.168.146.187:10001",
+
+    "real_init_position": True,
+    "real_commission_margin_rate": False,
+    "real_trade_time": False,
 }
 
 
@@ -32,7 +37,7 @@ cli_prefix = "mod__ctp__"
 
 cli.commands['run'].params.append(
     click.Option(
-        ('-ctpu', '--ctp-user-id', cli_prefix + 'user_id'),
+        ('--ctp-user-id', cli_prefix + 'user_id'),
         type=click.STRING,
         help="[ctp] uesr_id",
     )
@@ -40,7 +45,7 @@ cli.commands['run'].params.append(
 
 cli.commands['run'].params.append(
     click.Option(
-        ('-ctpp', '--ctp-password', cli_prefix + 'password'),
+        ('--ctp-password', cli_prefix + 'password'),
         type=click.STRING,
         help="[ctp] password",
     )
@@ -48,7 +53,7 @@ cli.commands['run'].params.append(
 
 cli.commands['run'].params.append(
     click.Option(
-        ('-ctpb', '--ctp-broker-id', cli_prefix + 'broker_id'),
+        ('--ctp-broker-id', cli_prefix + 'broker_id'),
         type=click.STRING,
         help="[ctp] broker_id",
     )
@@ -56,7 +61,7 @@ cli.commands['run'].params.append(
 
 cli.commands['run'].params.append(
     click.Option(
-        ('-ctptu', '--ctp-trade-frontend-url', cli_prefix + 'trade_frontend_url'),
+        ('--ctp-trade-frontend-url', cli_prefix + 'trade_frontend_url'),
         type=click.STRING,
         help="[ctp] trade address",
     )
@@ -64,7 +69,7 @@ cli.commands['run'].params.append(
 
 cli.commands['run'].params.append(
     click.Option(
-        ('-ctpmu', '--ctp-md-frontend-url', cli_prefix + 'md_frontend_url'),
+        ('--ctp-md-frontend-url', cli_prefix + 'md_frontend_url'),
         type=click.STRING,
         help="[ctp] market data address",
     )

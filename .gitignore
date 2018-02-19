@@ -8,5 +8,7 @@ __pycache__
 *.pk
 *.h5
 *.pyc
+*.con
 .coverage
 .tox
+test
