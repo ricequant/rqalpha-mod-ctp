@@ -38,7 +38,8 @@ class TradeGateway(object):
             mod_config.password,
             mod_config.broker_id,
             mod_config.trade_frontend_url,
-            system_log
+            system_log,
+            mod_config.real_init_position
         )
         self._trade_api.on_order_status_updated = self.on_order_status_updated
         self._trade_api.on_order_cancel_failed = self.on_order_cancel_failed
@@ -47,11 +48,6 @@ class TradeGateway(object):
         # order_id from rqalpha is too long
         self._order_ref_gen = id_gen(int(time.time()))
         self._order_ref_map = {}
-
-        if mod_config.real_init_position:
-            self._trade_api.on_qry_account = self.on_qry_account
-            self._trade_api.on_qry_position = self.on_qry_position
-            self._trade_api.on_qry_open_orders = self.on_qry_open_orders
 
         try:
             self._account = env.get_account_model(DEFAULT_ACCOUNT_TYPE.FUTURE.name)(
@@ -64,11 +60,26 @@ class TradeGateway(object):
                 Positions(env.get_position_model(DEFAULT_ACCOUNT_TYPE.FUTURE.name))
             )
 
-        self._open_orders = {}
         self._lock = Lock()
 
         self._trade_api.start_up()
-        print(self._trade_api.open_orders)
+
+        self._open_orders = copy(self._trade_api.open_orders)
+        if mod_config.real_init_position:
+            if env.config.base.init_positions:
+                raise RuntimeError(
+                    "RQAlpha receive init positions. rqalpha_mod_ctp do not support init_positions.")
+            env.event_bus.add_listener(
+                EVENT.POST_SYSTEM_INIT, lambda e: self._account.set_state(self._trade_api.account_state)
+            )
+            self.snapshot = {p['order_book_id']: {
+                "order_book_id": p['order_book_id'],
+                "last": p["prev_settlement_price"],
+                "limit_up": p["prev_settlement_price"] * 1.1,
+                "limit_down": p["prev_settlement_price"] * 0.9
+            } for p in itervalues(self._trade_api.account_state['positions'])}
+        else:
+            self.snapshot = {}
 
     def submit_order(self, order):
         system_log.debug('TradeGateway: submit order {}'.format(order.order_id))
@@ -183,14 +194,8 @@ class TradeGateway(object):
             self._del_open_order(order_ref)
         self._que.put(Event(EVENT.TRADE, account=self._account, trade=trade, order=copy(order)))
 
-    def on_qry_open_orders(self, order_dicts):
-        pass
-
-    def on_qry_account(self, yesterday_portfolio_value):
-        pass
-
-    def on_qry_position(self):
-        pass
+    def on_qry_account(self, account_state):
+        self._account.set_state(account_state)
 
     def calc_commission(self, order_book_id, price, quantity, position_effect):
         info = self._env.data_proxy.get_commission_info(order_book_id)

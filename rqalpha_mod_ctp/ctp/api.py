@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from time import sleep
+from threading import Lock
 
 from rqalpha.const import SIDE, POSITION_EFFECT, ORDER_STATUS
 from rqalpha.utils.datetime_func import convert_date_time_ms_int_to_datetime
@@ -22,6 +23,7 @@ from rqalpha.utils.datetime_func import convert_date_time_ms_int_to_datetime
 from .pyctp import MdApi, TraderApi, ApiStruct
 from .utils import is_future, make_order_book_id, bytes2str, str2bytes, Status, api_decorator
 from .utils import ORDER_TYPE_MAPPING, POSITION_EFFECT_MAPPING, SIDE_MAPPING, ORDER_TYPE_REVERSE, SIDE_REVERSE
+from .utils import retry_and_find_result, query_and_find_result
 
 
 class ApiMixIn(object):
@@ -33,8 +35,9 @@ class ApiMixIn(object):
         self.frontend_url = frontend_url
         self.logger = logger
 
-        self._status = Status.DISCONNECTED
-        self._starting_up = False
+        self._queries = []
+
+        self._status = Status.NOT_INITIALIZED
         self._status_msg = None
         self._req_id = 0
 
@@ -47,61 +50,39 @@ class ApiMixIn(object):
     def close(self):
         pass
 
-    def start_up(self, retry_time=5):
-        if self._starting_up:
-            return
-
-        self._starting_up = True
+    def start_up(self):
         if self._status == Status.ERROR:
-            self._status = Status.DISCONNECTED
+            self._status = Status.NOT_INITIALIZED
 
         if self.user_id and self.password and self.broker_id and self.frontend_url:
             self.logger.info('{}: start up'.format(self.name))
-
-        for i in range(retry_time + 2):
-            if self._status >= Status.PREPARING:
-                break
-            self.do_init()
-            for j in range(100 * 2 ** i):
-                sleep(0.01)
-                if self._status >= Status.PREPARING:
-                    break
-                elif self._status == Status.ERROR:
-                    self._starting_up = False
-                    raise RuntimeError(self._status_msg)
-            else:
-                continue
-            break
         else:
-            self._status = Status.ERROR
-            self._starting_up = False
-            raise RuntimeError('{}: init timeout'.format(self.name))
-        self.logger.debug('{}: init successfully'.format(self.name))
+            raise RuntimeError("{}: invalid parameters.")
 
-        for i in range(retry_time + 1):
-            if self._status >= Status.RUNNING:
-                break
-            self.prepare()
-            for j in range(100 * 2 ** i):
-                sleep(0.01)
-                if self._status >= Status.RUNNING:
-                    break
-                elif self._status == Status.ERROR:
-                    self._starting_up = False
-                    raise RuntimeError(self._status_msg)
-            else:
-                continue
-            break
-        else:
+        init_result = retry_and_find_result(
+            self.do_init,
+            lambda: self._status >= Status.INITIALIZED,
+            lambda: self._status == Status.ERROR
+        )
+        if init_result is None:
             self._status = Status.ERROR
-            self._starting_up = False
-            raise RuntimeError('{}: prepare timeout'.format(self.name))
+            raise RuntimeError("{}: init timeout.".format(self.name))
+        elif not init_result:
+            raise RuntimeError(self._status_msg)
+
+        self.logger.debug('{}: init successfully.'.format(self.name))
+
+        for query, done in self._queries:
+            sleep(1)
+            result = query_and_find_result(query, done, failed=lambda: self._status == Status.ERROR)
+            if not result:
+                raise RuntimeError("{}: {} failed.".format(self.name, query.__name__))
+        self._status = Status.RUNNING
         self.logger.info('{}: started up'.format(self.name))
-        self._starting_up = False
 
     def tear_down(self):
         self.close()
-        self._status = Status.DISCONNECTED
+        self._status = Status.NOT_INITIALIZED
         self.logger.info('{}: torn up'.format(self.name))
 
     @property
@@ -123,10 +104,6 @@ class CtpMdApi(MdApi, ApiMixIn):
         self.RegisterFront(str2bytes(self.frontend_url))
         self.Init()
 
-    def prepare(self):
-        self.SubscribeMarketData([str2bytes(i) for i in self.get_instrument_ids()])
-        self._status = Status.RUNNING
-
     def close(self):
         self.Release()
 
@@ -142,7 +119,7 @@ class CtpMdApi(MdApi, ApiMixIn):
     @api_decorator(check_status=False)
     def OnFrontDisconnected(self, nReason):
         """服务器断开"""
-        self._status = Status.DISCONNECTED
+        self._status = Status.NOT_INITIALIZED
 
     @api_decorator(check_status=False)
     def OnRspError(self, pRspInfo, nRequestID, bIsLast):
@@ -154,7 +131,8 @@ class CtpMdApi(MdApi, ApiMixIn):
         """登陆回报"""
         self.logger.debug('{}: OnRspUserLogin: {}, pRspInfo: {}'.format(self.name, pRspUserLogin, pRspInfo))
         if pRspInfo.ErrorID == 0:
-            self._status = Status.PREPARING
+            self.SubscribeMarketData([str2bytes(i) for i in self.get_instrument_ids()])
+            self._status = Status.INITIALIZED
         else:
             self._status = Status.ERROR
             self._status_msg = bytes2str(pRspInfo.ErrorMsg)
@@ -213,24 +191,39 @@ class CtpMdApi(MdApi, ApiMixIn):
 
 class CtpTradeApi(TraderApi, ApiMixIn):
     # TODO: 流文件放在不同路径(con)
-    def __init__(self, user_id, password, broker_id, md_frontend_url, logger):
+    def __init__(self, user_id, password, broker_id, md_frontend_url, logger, qry_account=False):
         TraderApi.__init__(self)
         ApiMixIn.__init__(self, 'CtpTradeApi', user_id, password, broker_id, md_frontend_url, logger)
 
         self._session_id = None
         self._front_id = None
 
-        self._ins_cache = {}
-        self._account_cache = {}
-        self._order_cache = {}
+        self._ins_cache = None
+        self._account_cache = None
+        self._order_cache = None
+
+        self._qry_instruments_done = False
+        self._qry_open_orders_done = False
+        self._qry_account_done = False
+        self._qry_positions_done = False
+        self._qry_trades_done = False
+
+        self._queries = [
+            (self.qry_instruments, lambda: self._qry_instruments_done),
+            (self.qry_open_orders, lambda: self._qry_open_orders_done),
+        ]
+        if qry_account:
+            self._queries.extend([
+                (self.qry_account, lambda: self._qry_account_done),
+                (self.qry_positions, lambda: self._qry_positions_done),
+                (self.qry_trades, lambda: self._qry_trades_done)
+            ])
+
+        self._lock = Lock()
 
         self.on_order_status_updated = None
         self.on_order_cancel_failed = None
         self.on_trade = None
-
-        self.on_qry_open_orders = None
-        self.on_qry_account = None
-        self.on_qry_position = None
 
         self.on_commission = None
 
@@ -241,9 +234,6 @@ class CtpTradeApi(TraderApi, ApiMixIn):
         self.RegisterFront(str2bytes(self.frontend_url))
         self.Init()
 
-    def prepare(self):
-        self.ReqQryInstrument(ApiStruct.QryInstrument(), self.req_id)
-
     def close(self):
         self.Release()
 
@@ -253,56 +243,13 @@ class CtpTradeApi(TraderApi, ApiMixIn):
         if pRspInfo.ErrorID == 0:
             self._front_id = pRspUserLogin.FrontID
             self._session_id = pRspUserLogin.SessionID
-            self._status = Status.PREPARING
+            self._status = Status.INITIALIZED
             self.ReqSettlementInfoConfirm(ApiStruct.SettlementInfoConfirm(
                 BrokerID=str2bytes(self.broker_id), InvestorID=str2bytes(self.user_id)
             ), self.req_id)
         else:
             self._status = Status.ERROR
             self._status_msg = bytes2str(pRspInfo.ErrorMsg)
-
-    @api_decorator(check_status=False)
-    def OnRspQryInstrument(self, pInstrument, pRspInfo, nRequestID, bIsLast):
-        if is_future(pInstrument.InstrumentID):
-            order_book_id = make_order_book_id(pInstrument.InstrumentID)
-            self._ins_cache[order_book_id] = {
-                'order_book_id': order_book_id,
-                'instrument_id': str2bytes(pInstrument.InstrumentID),
-                'exchange_id': str2bytes(pInstrument.ExchangeID),
-                'tick_size': float(pInstrument.PriceTick),
-                'contract_multiplier': pInstrument.VolumeMultiple,
-                'long_margin_rate': pInstrument.LongMarginRatio,
-                'short_margin_rate': pInstrument.ShortMarginRatio,
-            }
-        if bIsLast:
-            sleep(0.5)
-            self.ReqQryOrder(ApiStruct.QryOrder(
-                BrokerID=str2bytes(self.broker_id),
-                InvestorID=str2bytes(self.user_id)
-            ), self.req_id)
-
-    @api_decorator(check_status=False)
-    def OnRspQryOrder(self, pOrder, pRspInfo, nRequestID, bIsLast):
-        if pOrder:
-            if pOrder.OrderStatus in [ApiStruct.OST_PartTradedQueueing, ApiStruct.OST_NoTradeQueueing]:
-                self._order_cache[int(pOrder.OrderRef)] = {
-                    'status': ORDER_STATUS.ACTIVE,
-                    'order_book_id': make_order_book_id(pOrder.InstrumentID),
-                    'quantity': pOrder.VolumeTotalOriginal,
-                    'filled_quantity': pOrder.VolumeTotalTraded,
-                    'side': SIDE_REVERSE.get(pOrder.Direction, SIDE.BUY),
-                    'position_effect': {
-                        ApiStruct.OF_Open: POSITION_EFFECT.OPEN,
-                        ApiStruct.OF_CloseToday: POSITION_EFFECT.CLOSE_TODAY,
-                    }.get(pOrder.CombOffsetFlag, POSITION_EFFECT.CLOSE) if pOrder.ExchangeID == 'SHFE' else {
-                        ApiStruct.OF_Open: POSITION_EFFECT.OPEN
-                    }.get(pOrder.CombOffsetFlag, POSITION_EFFECT.CLOSE),
-                    'price': pOrder.LimitPrice,
-                    'type': ORDER_TYPE_REVERSE.get(pOrder.OrderPriceType),
-                }
-        if bIsLast:
-            self.logger.debug('{}: Last OnRspQryOrder'.format(self.name))
-            self._status = Status.RUNNING
 
     @api_decorator(check_status=False)
     def OnFrontConnected(self):
@@ -314,7 +261,7 @@ class CtpTradeApi(TraderApi, ApiMixIn):
 
     @api_decorator(check_status=False)
     def OnFrontDisconnected(self, nReason):
-        self._status = Status.DISCONNECTED
+        self._status = Status.NOT_INITIALIZED
 
     @api_decorator()
     def OnRspOrderInsert(self, pInputOrder, pRspInfo, nRequestID, bIsLast):
@@ -384,78 +331,141 @@ class CtpTradeApi(TraderApi, ApiMixIn):
         )
 
     @api_decorator(check_status=False)
-    def OnRspQryTradingAccount(self, pTradingAccount, pRspInfo, nRequestID, bIsLast):
-        yesterday_portfolio_value = pTradingAccount.PreBalance if pTradingAccount.PreBalance else pTradingAccount.Balance
-        self._account_cache['total_cash'] += yesterday_portfolio_value
-        sleep(1)
-        self.ReqQryInvestorPosition(ApiStruct.QryInvestorPosition(
-            BrokerID=str2bytes(self.broker_id),
-            InvestorID=str2bytes(self.user_id)
-        ), self.req_id)
-        sleep(1)
-        self.ReqQryTrade(ApiStruct.QryTrade(
-            BrokerID=str2bytes(self.broker_id),
-            InvestorID=str2bytes(self.user_id),
-        ), self.req_id)
+    def OnRspQryInstrument(self, pInstrument, pRspInfo, nRequestID, bIsLast):
+        if is_future(pInstrument.InstrumentID):
+            order_book_id = make_order_book_id(pInstrument.InstrumentID)
+            with self._lock:
+                self._ins_cache[order_book_id] = {
+                    'order_book_id': order_book_id,
+                    'instrument_id': str2bytes(pInstrument.InstrumentID),
+                    'exchange_id': str2bytes(pInstrument.ExchangeID),
+                    'tick_size': float(pInstrument.PriceTick),
+                    'contract_multiplier': pInstrument.VolumeMultiple,
+                    'long_margin_rate': pInstrument.LongMarginRatio,
+                    'short_margin_rate': pInstrument.ShortMarginRatio,
+                }
+        if bIsLast:
+            with self._lock:
+                self._qry_instruments_done = True
 
     @api_decorator(check_status=False)
-    def OnRspQryTrade(self, pTrade, pRspInfo, nRequestID, bIsLast):
-        # TODO
-        pass
+    def OnRspQryOrder(self, pOrder, pRspInfo, nRequestID, bIsLast):
+        if pOrder and pOrder.OrderStatus in [ApiStruct.OST_PartTradedQueueing, ApiStruct.OST_NoTradeQueueing]:
+            with self._lock:
+                self._order_cache[int(pOrder.OrderRef)] = {
+                    'status': ORDER_STATUS.ACTIVE,
+                    'order_book_id': make_order_book_id(pOrder.InstrumentID),
+                    'quantity': pOrder.VolumeTotalOriginal,
+                    'filled_quantity': pOrder.VolumeTotalTraded,
+                    'side': SIDE_REVERSE.get(pOrder.Direction, SIDE.BUY),
+                    'position_effect': {
+                        ApiStruct.OF_Open: POSITION_EFFECT.OPEN,
+                        ApiStruct.OF_CloseToday: POSITION_EFFECT.CLOSE_TODAY,
+                    }.get(pOrder.CombOffsetFlag, POSITION_EFFECT.CLOSE) if pOrder.ExchangeID == 'SHFE' else {
+                        ApiStruct.OF_Open: POSITION_EFFECT.OPEN
+                    }.get(pOrder.CombOffsetFlag, POSITION_EFFECT.CLOSE),
+                    'price': pOrder.LimitPrice,
+                    'type': ORDER_TYPE_REVERSE.get(pOrder.OrderPriceType),
+                }
+        if bIsLast:
+            with self._lock:
+                self._qry_open_orders_done = True
+
+    @api_decorator(check_status=False)
+    def OnRspQryTradingAccount(self, pTradingAccount, pRspInfo, nRequestID, bIsLast):
+        yesterday_portfolio_value = pTradingAccount.PreBalance if pTradingAccount.PreBalance else pTradingAccount.Balance
+        with self._lock:
+            self._account_cache['total_cash'] += yesterday_portfolio_value
+            self._qry_account_done = True
 
     @api_decorator(check_status=False)
     def OnRspQryInvestorPosition(self, pInvestorPosition, pRspInfo, nRequestID, bIsLast):
         """持仓查询回报"""
+        if pInvestorPosition and pInvestorPosition.InstrumentID:
+            order_book_id = make_order_book_id(pInvestorPosition.InstrumentID)
+            try:
+                ins_dict = self._ins_cache[order_book_id]
+            except KeyError:
+                self._status = Status.ERROR
+                self._status_msg = 'Query instrument failed.'
+                return
+            with self._lock:
+                position = self._account_cache['positions'].setdefault(order_book_id, {
+                    'order_book_id': order_book_id,
+                    'buy_old_holding_list': [],
+                    'sell_old_holding_list': [],
+                    'buy_today_holding_list': [],
+                    'sell_today_holding_list': [],
+                    'buy_transaction_cost': 0,
+                    'sell_transaction_cost': 0,
+                    'buy_realized_pnl': 0,
+                    'sell_realized_pnl': 0,
+                    'buy_avg_open_price': 0,
+                    'sell_avg_open_price': 0,
+                    'margin_rate': ins_dict['long_margin_rate'],
 
-        if not pInvestorPosition:
-            return
-        if not pInvestorPosition.InstrumentID:
-            return
-        order_book_id = make_order_book_id(pInvestorPosition.InstrumentID)
-        ins_dict = self._ins_cache[order_book_id]
-        position = self._account_cache['positions'].setdefault(order_book_id, {
-            'order_book_id': order_book_id,
-            'buy_old_holding_list': [],
-            'sell_old_holding_list': [],
-            'buy_today_holding_list': [],
-            'sell_today_holding_list':[],
-            'buy_transaction_cost': 0,
-            'sell_transaction_cost': 0,
-            'buy_realized_pnl': 0,
-            'sell_realized_pnl': 0,
-            'buy_avg_open_price': 0,
-            'sell_avg_open_price': 0,
-            'margin_rate': ins_dict['long_margin_rate'],
+                    'buy_quantity': 0,
+                    'sell_quantity': 0,
+                    'buy_open_cost': 0,
+                    'sell_open_cost': 0,
 
-            'buy_quantity': 0,
-            'sell_quantity': 0,
-            'buy_open_cost': 0,
-            'sell_open_cost': 0,
-        })
-        if pInvestorPosition.PosiDirection in [ApiStruct.PD_Net, ApiStruct.PD_Long]:
-            position['buy_old_holding_list'] = [(
-                pInvestorPosition.PreSettlementPrice, pInvestorPosition.Position - pInvestorPosition.TodayPosition
-            )]
-            position['buy_transaction_cost'] += pInvestorPosition.Commission
-            position['buy_realized_pnl'] += pInvestorPosition.CloseProfit
+                    'prev_settlement_price': 0,
+                })
+                position['prev_settlement_price'] = pInvestorPosition.PreSettlementPrice
+                if pInvestorPosition.PosiDirection in [ApiStruct.PD_Net, ApiStruct.PD_Long]:
+                    position['buy_old_holding_list'] = [(
+                        pInvestorPosition.PreSettlementPrice, pInvestorPosition.Position - pInvestorPosition.TodayPosition
+                    )]
+                    position['buy_transaction_cost'] += pInvestorPosition.Commission
+                    position['buy_realized_pnl'] += pInvestorPosition.CloseProfit
 
-            position['buy_open_cost'] += pInvestorPosition.OpenCost
-            position['buy_quantity'] += pInvestorPosition.Position
-            if position['buy_quantity']:
-                position['buy_avg_open_price'] = position['buy_open_cost'] / (position['buy_quantity'] * ins_dict['contract_multiplier'])
-        elif pInvestorPosition.PosiDirection == ApiStruct.PD_Short:
-            position['sell_old_holding_list'] = [(
-                pInvestorPosition.PreSettlementPrice, pInvestorPosition.Position - pInvestorPosition.TodayPosition
-            )]
-            position['sell_transaction_cost'] += pInvestorPosition.Commission
-            position['sell_realized_pnl'] += pInvestorPosition.CloseProfit
+                    position['buy_open_cost'] += pInvestorPosition.OpenCost
+                    position['buy_quantity'] += pInvestorPosition.Position
+                    if position['buy_quantity']:
+                        position['buy_avg_open_price'] = position['buy_open_cost'] / (
+                        position['buy_quantity'] * ins_dict['contract_multiplier'])
+                elif pInvestorPosition.PosiDirection == ApiStruct.PD_Short:
+                    position['sell_old_holding_list'] = [(
+                        pInvestorPosition.PreSettlementPrice, pInvestorPosition.Position - pInvestorPosition.TodayPosition
+                    )]
+                    position['sell_transaction_cost'] += pInvestorPosition.Commission
+                    position['sell_realized_pnl'] += pInvestorPosition.CloseProfit
 
-            position['sell_open_cost'] += pInvestorPosition.OpenCost
-            position['sell_quantity'] += pInvestorPosition.Position
-            if position['sell_quantity']:
-                position['sell_avg_open_price'] = position['sell_open_cost'] / (position['sell_quantity'] * ins_dict['contract_multiplier'])
-        else:
-            self.logger.error('{}: Unknown direction: {}'.format(self.name, pInvestorPosition.PosiDirection))
+                    position['sell_open_cost'] += pInvestorPosition.OpenCost
+                    position['sell_quantity'] += pInvestorPosition.Position
+                    if position['sell_quantity']:
+                        position['sell_avg_open_price'] = position['sell_open_cost'] / (
+                        position['sell_quantity'] * ins_dict['contract_multiplier'])
+                else:
+                    self.logger.error('{}: Unknown direction: {}'.format(self.name, pInvestorPosition.PosiDirection))
+        if bIsLast:
+            with self._lock:
+                self._qry_positions_done = True
+
+    @api_decorator(check_status=False)
+    def OnRspQryTrade(self, pTrade, pRspInfo, nRequestID, bIsLast):
+        if pTrade:
+            trade_id = int(pTrade.TradeID)
+            with self._lock:
+                if trade_id not in self._account_cache['backward_trade_set']:
+                    self._account_cache['backward_trade_set'].append(trade_id)
+        if bIsLast:
+            self._qry_trades_done = True
+
+    def qry_instruments(self):
+        with self._lock:
+            self._qry_instruments_done = False
+            self._ins_cache = {}
+            self.ReqQryInstrument(ApiStruct.QryInstrument(), self.req_id)
+
+    def qry_open_orders(self):
+        with self._lock:
+            self._qry_open_orders_done = False
+            self._order_cache = {}
+            self.ReqQryOrder(ApiStruct.QryOrder(
+                BrokerID=str2bytes(self.broker_id),
+                InvestorID=str2bytes(self.user_id)
+            ), self.req_id)
 
     def qry_account(self):
         def cal_margin(order_book_id, quantity, price, side):
@@ -465,16 +475,34 @@ class CtpTradeApi(TraderApi, ApiMixIn):
             else:
                 return quantity * ins_dict['contract_multiplier'] * price * ins_dict['short_margin_rate']
 
-        self._account_cache = {
-            'frozen_cash': sum(cal_margin(
-                o['order_book_id'], o['quantity'] - o['filled_quantity'], o['price'], o['side']
-            ) for o in self._order_cache),
-            'total_cash': 0,
-            'transaction_cost': 0,
-            'positions': dict(),
-            'backward_trade_set': set(),
-        }
-        self.ReqQryTradingAccount(ApiStruct.QryTradingAccount(), self.req_id)
+        with self._lock:
+            self._qry_account_done = False
+            self._account_cache = {
+                'frozen_cash': sum(cal_margin(
+                    o['order_book_id'], o['quantity'] - o['filled_quantity'], o['price'], o['side']
+                ) for o in self._order_cache),
+                'total_cash': 0,
+                'transaction_cost': 0,
+                'positions': {},
+                'backward_trade_set': [],
+            }
+            self.ReqQryTradingAccount(ApiStruct.QryTradingAccount(), self.req_id)
+
+    def qry_positions(self):
+        with self._lock:
+            self._qry_positions_done = False
+            self.ReqQryInvestorPosition(ApiStruct.QryInvestorPosition(
+                BrokerID=str2bytes(self.broker_id),
+                InvestorID=str2bytes(self.user_id)
+            ), self.req_id)
+
+    def qry_trades(self):
+        with self._lock:
+            self._qry_trades_done = False
+            self.ReqQryTrade(ApiStruct.QryTrade(
+                BrokerID=str2bytes(self.broker_id),
+                InvestorID=str2bytes(self.user_id),
+            ), self.req_id)
 
     @api_decorator(log=False, raise_error=True)
     def submit_order(self, order_ref, order):
@@ -550,3 +578,7 @@ class CtpTradeApi(TraderApi, ApiMixIn):
     @property
     def open_orders(self):
         return self._order_cache
+
+    @property
+    def account_state(self):
+        return self._account_cache

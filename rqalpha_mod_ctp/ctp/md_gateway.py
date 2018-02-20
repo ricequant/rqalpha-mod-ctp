@@ -23,7 +23,6 @@ from six import itervalues
 from rqalpha.utils.logger import system_log
 from rqalpha.events import EVENT, Event
 from rqalpha.model.tick import Tick
-from rqalpha.utils.datetime_func import convert_date_time_ms_int_to_datetime
 
 from .api import CtpMdApi
 
@@ -59,6 +58,7 @@ class MdGateway(object):
         return self._snapshot_cache
 
     def on_tick(self, tick_dict):
+        self._snapshot_cache[tick_dict['order_book_id']] = tick_dict
         if not self._subscribed:
             return
         if tick_dict['order_book_id'] in self._subscribed:
@@ -69,7 +69,6 @@ class MdGateway(object):
                 trading_dt=self._env.data_proxy.get_trading_dt(tick.datetime),
                 tick=tick
             ))
-        self._snapshot_cache[tick_dict['order_book_id']] = tick_dict
 
     def on_universe_changed(self, event):
         self._subscribed = event.universe

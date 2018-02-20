@@ -1,5 +1,6 @@
 import six
 import re
+from time import sleep
 from functools import wraps
 
 from rqalpha.const import ORDER_TYPE, SIDE, POSITION_EFFECT
@@ -36,8 +37,8 @@ POSITION_EFFECT_MAPPING = {
 
 class Status(object):
     ERROR = -1
-    DISCONNECTED = 0
-    PREPARING = 1
+    NOT_INITIALIZED = 0
+    INITIALIZED = 1
     RUNNING = 2
 
 
@@ -108,3 +109,29 @@ def api_decorator(log=True, check_status=True, raise_error=False):
         return wrapper
     return decorator
 
+
+def retry_and_find_result(do, done, failed, retry_times=5, timeout=5):
+    # return True if success, False if failed, None if timeout
+    if retry_times <= 0:
+        return
+    if done():
+        return True
+    do()
+    for i in range(timeout * 100):
+        # print("wait ", i)
+        sleep(0.01)
+        if done():
+            return True
+        elif failed():
+            return False
+    else:
+        return retry_and_find_result(do, done, failed, retry_times - 1, timeout * 2)
+
+
+def query_and_find_result(query, done, failed=lambda: None):
+    if done:
+        result = retry_and_find_result(query, done, failed)
+    else:
+        result = retry_and_find_result(query, done=lambda: False, failed=failed, retry_times=1, timeout=2)
+        result = True if result is None else result
+    return result
