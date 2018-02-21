@@ -17,6 +17,7 @@
 from time import sleep
 from threading import Lock
 from functools import partial
+from six import iterkeys
 from click import progressbar
 
 from rqalpha.const import SIDE, POSITION_EFFECT, ORDER_STATUS, COMMISSION_TYPE, MARGIN_TYPE
@@ -188,7 +189,7 @@ class CtpMdApi(MdApi, ApiMixIn):
 
 class CtpTradeApi(TraderApi, ApiMixIn):
     # TODO: 流文件放在不同路径(con)
-    def __init__(self, user_id, password, broker_id, md_frontend_url, logger, qry_account=False, qry_commission=False, show_progress_bar=False):
+    def __init__(self, user_id, password, broker_id, md_frontend_url, logger, qry_account, qry_commission, show_progress_bar):
         TraderApi.__init__(self)
         ApiMixIn.__init__(self, 'CtpTradeApi', user_id, password, broker_id, md_frontend_url, logger)
 
@@ -200,7 +201,7 @@ class CtpTradeApi(TraderApi, ApiMixIn):
         self._order_cache = None
 
         self._current_query_done = False
-        self._queries = [self.qry_instruments, self.qry_open_orders]
+        self._queries = [self.qry_open_orders]
         if qry_account:
             self._queries.extend([self.qry_account, self.qry_positions, self.qry_trades])
 
@@ -231,6 +232,7 @@ class CtpTradeApi(TraderApi, ApiMixIn):
 
         query_and_find_result(self.qry_instruments, lambda: self._current_query_done, lambda: self._status == Status.ERROR)
 
+        print(len(self._queries))
         if self._show_progress_bar and len(self._queries) > 1:
             progress_bar = progressbar(length=len(self._queries), label='Querying data')
         else:
@@ -355,10 +357,11 @@ class CtpTradeApi(TraderApi, ApiMixIn):
                     'short_margin_ratio': pInstrument.ShortMarginRatio,
                     "margin_type": MARGIN_TYPE.BY_MONEY,
                 }
-                if self._qry_commission:
-                    self._queries.append(partial(self.qry_commission, order_book_id=order_book_id))
         if bIsLast:
             with self._lock:
+                if self._qry_commission:
+                    for order_book_id in iterkeys(self._ins_cache):
+                        self._queries.append(partial(self.qry_commission, order_book_id=order_book_id))
                 self._current_query_done = True
 
     @api_decorator(check_status=False)

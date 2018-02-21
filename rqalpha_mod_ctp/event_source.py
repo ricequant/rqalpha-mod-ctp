@@ -22,6 +22,7 @@ except ImportError:
     from Queue import Queue, Empty
 
 from threading import Thread
+import schedule
 
 from rqalpha.environment import Environment
 from rqalpha.events import EVENT, Event
@@ -146,6 +147,7 @@ class TimerEventSource(object):
         # todo: before_trading, after_trading, settlement
         while self.running:
             sleep(self._interval)
+            schedule.run_pending()
             calendar_dt = self._env.calendar_dt
             try:
                 trading_dt = self._env.data_proxy.get_trading_dt(calendar_dt)
