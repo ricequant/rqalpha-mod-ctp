@@ -59,7 +59,7 @@ class CtpMod(AbstractMod):
         self._event_source = QueuedEventSource(env)
 
         self._trade_gateway = TradeGateway(env, mod_config, self._event_source)
-        self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway))
+        self._env.set_data_source(CtpDataSource(env, self._md_gateway, self._trade_gateway, mod_config))
 
         self._md_gateway = MdGateway(env, mod_config, self._event_source)
 

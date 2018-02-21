@@ -16,7 +16,6 @@
 # limitations under the License.
 
 from datetime import date
-from functools import lru_cache
 
 from rqalpha.data.base_data_source import BaseDataSource
 from rqalpha.model.snapshot import SnapshotObject
@@ -24,11 +23,12 @@ from rqalpha.utils.logger import system_log
 
 
 class CtpDataSource(BaseDataSource):
-    def __init__(self, env, md_gateway, trade_gateway):
+    def __init__(self, env, md_gateway, trade_gateway, mod_config):
         path = env.config.base.data_bundle_path
         super(CtpDataSource, self).__init__(path)
         self._md_gateway = md_gateway
         self._trade_gateway = trade_gateway
+        self._mod_config = mod_config
 
     def current_snapshot(self, instrument, frequency, dt):
         if frequency != 'tick':
@@ -47,7 +47,6 @@ class CtpDataSource(BaseDataSource):
         e = date.fromtimestamp(2147483647)
         return s, e
 
-    @lru_cache(None)
     def get_future_info(self, instrument=None):
         if instrument:
             order_book_id = instrument.order_book_id
@@ -57,3 +56,15 @@ class CtpDataSource(BaseDataSource):
                 return None
         else:
             return self._trade_gateway.future_infos
+
+    def get_commission_info(self, instrument):
+        if self._mod_config.real_commission_margin_rate:
+            return self.get_future_info(instrument)
+        else:
+            return super(CtpDataSource, self).get_commission_info(instrument)
+
+    def get_margin_info(self, instrument):
+        if self._mod_config.real_commission_margin_rate:
+            return self.get_future_info(instrument)
+        else:
+            return super(CtpDataSource, self).get_margin_info(instrument)

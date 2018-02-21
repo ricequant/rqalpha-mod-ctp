@@ -29,7 +29,6 @@ __config__ = {
 
     "real_init_position": True,
     "real_commission_margin_rate": False,
-    "real_trade_time": False,
 }
 
 
@@ -72,6 +71,22 @@ cli.commands['run'].params.append(
         ('--ctp-md-frontend-url', cli_prefix + 'md_frontend_url'),
         type=click.STRING,
         help="[ctp] market data address",
+    )
+)
+
+cli.commands['run'].params.append(
+    click.Option(
+        ('--real-init-position', cli_prefix + 'real_init_position'),
+        flag_value=True,
+        help="[ctp] use real init position and account when strategy starts"
+    )
+)
+
+cli.commands['run'].params.append(
+    click.Option(
+        ('--real-commission-margin-rate', cli_prefix + 'real_commission_margin_rate'),
+        flag_value=True,
+        help="[ctp] use real commission and margin rate"
     )
 )
 

@@ -77,6 +77,7 @@ def make_order_book_id(symbol):
     if len(symbol) < 4:
         return None
     if symbol[-4] not in '0123456789':
+        # FIXME: 考虑2020年后到期的合约
         order_book_id = symbol[:2] + '1' + symbol[-3:]
     else:
         order_book_id = symbol
@@ -128,7 +129,7 @@ def retry_and_find_result(do, done, failed, retry_times=5, timeout=5):
         return retry_and_find_result(do, done, failed, retry_times - 1, timeout * 2)
 
 
-def query_and_find_result(query, done, failed=lambda: None):
+def query_and_find_result(query, done, failed):
     if done:
         result = retry_and_find_result(query, done, failed)
     else:

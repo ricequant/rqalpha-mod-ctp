@@ -39,7 +39,9 @@ class TradeGateway(object):
             mod_config.broker_id,
             mod_config.trade_frontend_url,
             system_log,
-            mod_config.real_init_position
+            mod_config.real_init_position,
+            mod_config.real_commission_margin_rate,
+            True if env.config.extra.log_level != 'verbose' else False,
         )
         self._trade_api.on_order_status_updated = self.on_order_status_updated
         self._trade_api.on_order_cancel_failed = self.on_order_cancel_failed
