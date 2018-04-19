@@ -69,7 +69,7 @@ def make_underlying_symbol(id_or_symbol):
     if six.PY2:
         return filter(lambda x: x not in '0123456789 ', id_or_symbol).upper()
     else:
-        return ''.join(list(filter(lambda x: x not in '0123456789 ', 'rb1705'))).upper()
+        return ''.join(list(filter(lambda x: x not in '0123456789 ', id_or_symbol))).upper()
 
 
 def make_order_book_id(symbol):
